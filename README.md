@@ -39,6 +39,14 @@ if missing.
 
 ### Usage
 
+The quickest way just run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/auto-lint.sh | bash
+```
+
+Or, if you've already cloned this repo:
+
 ```bash
 ./Scripts/auto-lint.sh
 ```
