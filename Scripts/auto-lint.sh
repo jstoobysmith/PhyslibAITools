@@ -26,14 +26,75 @@ die()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
  
 OS="$(uname -s)"
- 
-pkg_install() {  # best-effort system package install (same name on brew/apt)
-  local p="$1"
-  if have brew; then brew install "$p"
-  elif have apt-get; then sudo apt-get update -y && sudo apt-get install -y "$p"
-  else return 1; fi
+
+# Make tools installed in non-default locations visible to the checks below, so
+# the preflight reflects reality even before the install steps re-export PATH.
+export PATH="$HOME/.elan/bin:$HOME/.local/bin:$PATH"
+have npm && export PATH="$(npm prefix -g 2>/dev/null)/bin:$PATH" || true
+
+# Checkbox line:  check <ok|missing|info> <label>
+#   ok      -> green [x]   (ready)
+#   missing -> red   [ ]   (the script will install / set this up below)
+#   info    -> yellow[*]   (couldn't determine, or nothing needs doing)
+check() {
+  local state="$1"; shift
+  case "$state" in
+    ok)      printf '  \033[1;32m[x]\033[0m %s\n' "$*";;
+    missing) printf '  \033[1;31m[ ]\033[0m %s\n' "$*";;
+    *)       printf '  \033[1;33m[*]\033[0m %s\n' "$*";;
+  esac
 }
- 
+
+# Best-effort detection of a Claude Code login (no official status command).
+claude_signed_in() {
+  [ -f "$HOME/.claude/.credentials.json" ] && return 0
+  [ -f "$HOME/.config/claude/.credentials.json" ] && return 0
+  [ "$OS" = "Darwin" ] \
+    && security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1 \
+    && return 0
+  return 1
+}
+
+# --- 0. Preflight: report the status of every prerequisite ------------------
+
+log "Prerequisite check (anything unchecked will be installed/set up below):"
+
+have git    && check ok "git installed"                 || check missing "git installed (REQUIRED - install it and re-run)"
+have curl   && check ok "curl installed"                || check missing "curl installed (REQUIRED - install it and re-run)"
+have lake   && check ok "Lean toolchain (elan/lake)"    || check missing "Lean toolchain (elan/lake)"
+have gh     && check ok "GitHub CLI (gh)"               || check missing "GitHub CLI (gh)"
+{ have uv || have uvx; } && check ok "uv (for lean-lsp-mcp)" || check missing "uv (for lean-lsp-mcp)"
+have claude && check ok "Claude Code (claude)"          || check missing "Claude Code (claude)"
+
+# GitHub authentication
+if have gh && gh auth status >/dev/null 2>&1; then
+  check ok "GitHub: signed in"
+elif have gh; then
+  check missing "GitHub: signed in (you'll be prompted)"
+else
+  check info "GitHub: sign-in pending (gh not installed yet)"
+fi
+
+# Claude Code authentication (best effort)
+if have claude && claude_signed_in; then
+  check ok "Claude Code: signed in"
+elif have claude; then
+  check info "Claude Code: sign-in not detected (you may be prompted at launch)"
+else
+  check info "Claude Code: sign-in pending (claude not installed yet)"
+fi
+
+# Physlib checkout / working folder
+if [ -f lakefile.toml ] || [ -f lakefile.lean ]; then
+  check ok "Physlib checkout (using the current directory)"
+elif [ -d physlib-auto ]; then
+  check ok "./physlib-auto folder (reusing existing checkout)"
+else
+  check info "./physlib-auto folder not found - that's OK, we'll create one"
+fi
+
+printf '\n'
+
 # --- 1. Prerequisites -------------------------------------------------------
  
 log "Checking prerequisites..."
@@ -91,10 +152,7 @@ https://docs.claude.com/en/docs/claude-code/overview and re-run."
 else
   log "Claude Code already installed."
 fi
- 
-# ripgrep (optional; speeds up lean-lsp-mcp's local search)
-have rg || pkg_install ripgrep || warn "ripgrep not installed (optional)."
- 
+
 # --- 2. GitHub auth ---------------------------------------------------------
  
 log "Checking GitHub authentication..."
