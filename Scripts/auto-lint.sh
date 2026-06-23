@@ -187,9 +187,14 @@ and hover info rather than guessing.
    where it's easy, the optional ones), following Mathlib conventions
    (https://leanprover-community.github.io/contribute/naming.html). Do not change
    any other source file, and do not alter the meaning of any proof.
-4. Remove that file's line from scripts/LinterExemption.txt, so the linters start
+4. Module-docstring: if a linter requires one (or the file would clearly benefit
+   from one), add a module-docstring, but make sure it is not too verbose. It
+   should make clear the scope and content of the file with an overview, and 
+   give any key definitions an understandable description. 
+   Where possible, link it back to physics.
+5. Remove that file's line from scripts/LinterExemption.txt, so the linters start
    enforcing the rules on it.
-5. Verify: build the project (`lake build`, or the relevant `lake build Physlib`
+6. Verify: build the project (`lake build`, or the relevant `lake build Physlib`
    / `lake build QuantumInfo` target) and re-run `lake exe runPhyslibLinters` and
    `./scripts/lint-style.sh`. Confirm the build succeeds and the file no longer
    trips either required linter.
