@@ -1,5 +1,31 @@
 # Physlib AI Tools
 
+## Scripts/auto-golf.sh
+
+A script that uses [Claude Code](https://docs.claude.com/en/docs/claude-code/overview)
+to "golf" a single long proof in [Physlib](https://github.com/leanprover-community/physlib)
+— improving it for length, speed, and structure without changing any theorem,
+lemma, or definition statement — and open a pull request for the change.
+
+It shares the same setup as `auto-lint.sh` (install toolchain, fork/clone, build,
+register `lean-lsp-mcp`), but instead of fixing a linter-exempted file it launches
+Claude to find exactly one theorem or lemma with a long proof, golf only that
+proof, and verify the project still builds before opening the PR.
+
+### Usage
+
+The quickest way just run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/auto-golf.sh | bash
+```
+
+Or, if you've already cloned this repo:
+
+```bash
+./Scripts/auto-golf.sh
+```
+
 ## Scripts/auto-lint.sh
 
 A script that uses [Claude Code](https://docs.claude.com/en/docs/claude-code/overview)
