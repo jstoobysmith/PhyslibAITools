@@ -65,6 +65,7 @@ have lake   && check ok "Lean toolchain (elan/lake)"    || check missing "Lean t
 have gh     && check ok "GitHub CLI (gh)"               || check missing "GitHub CLI (gh)"
 { have uv || have uvx; } && check ok "uv (for lean-lsp-mcp)" || check missing "uv (for lean-lsp-mcp)"
 have claude && check ok "Claude Code (claude)"          || check missing "Claude Code (claude)"
+{ have cc || have gcc || have clang; } && check ok "C compiler (cc/gcc/clang)" || check missing "C compiler (cc/gcc/clang)"
 
 # GitHub authentication
 if have gh && gh auth status >/dev/null 2>&1; then
@@ -153,6 +154,26 @@ else
   log "Claude Code already installed."
 fi
 
+# C compiler (cc) - required to build leansqlite, a dependency of the
+# `runPhyslibLinters` executable. Without it the required Physlib linters can't
+# build, so Claude can't run them to verify the fix. Hard requirement: stop
+# rather than proceed to a run that can't be verified.
+if ! have cc && ! have gcc && ! have clang; then
+  log "Installing a C compiler..."
+  if [ "$OS" = "Darwin" ]; then
+    xcode-select --install 2>/dev/null || true
+  elif have apt-get; then
+    sudo apt-get update -y && sudo apt-get install -y build-essential
+  fi
+  have cc || have gcc || have clang \
+    || die "No C compiler (cc/gcc/clang) found, and it couldn't be installed
+automatically. runPhyslibLinters needs one to build. Install a C compiler - on
+macOS finish the Xcode Command Line Tools install just triggered; on Debian or
+Ubuntu run 'sudo apt-get install -y build-essential' - then re-run this script."
+else
+  log "C compiler already installed."
+fi
+
 # --- 2. GitHub auth ---------------------------------------------------------
  
 log "Checking GitHub authentication..."
@@ -197,6 +218,19 @@ BRANCH="fix-linter-$(date +%Y%m%d-%H%M%S)"
 log "Creating work branch $BRANCH off $BASE..."
 git checkout -b "$BRANCH" "$BASE" 2>/dev/null \
   || { warn "Branch $BRANCH exists; checking it out."; git checkout "$BRANCH"; }
+
+# Fail fast if there's no commit identity, rather than dying at the `git commit`
+# in step 7 after the 10+ minute build. We're inside the repo we'll commit in, so
+# `git config user.name` reflects the identity that commit would actually use
+# (a local setting, or an inherited global/system one).
+if [ -z "$(git config user.name || true)" ] || [ -z "$(git config user.email || true)" ]; then
+  die "No git commit identity is configured. Set one with:
+  git config --global user.name \"Your Name\"
+  git config --global user.email \"you@example.com\"
+then re-run this script. (To keep your email private, you can use your GitHub
+noreply address, shown at https://github.com/settings/emails.)"
+fi
+log "Git commit identity: $(git config user.name) <$(git config user.email)>"
  
 # --- 4. Build (slow the first time) ----------------------------------------
  
@@ -301,15 +335,19 @@ if [ -z "$(git diff --cached --name-only)" ]; then
   exit 0
 fi
 
-# The fixed source file is everything staged except the exemption list.
-FIXED="$(git diff --cached --name-only -- . ':(exclude)scripts/LinterExemption.txt' | head -n1)"
-
-# Title and body come from the files Claude wrote; fall back if it left them empty.
+# Claude writes the PR title and body only once the file passes both required
+# linters; if it could not get the file clean, it leaves them empty (see the
+# prompt above). Treat empty PR text as that "couldn't finish" signal: keep the
+# changes staged on the branch, but don't commit, push, or open a PR for an
+# unverified fix. Verification stays with Claude in-session, where linter errors
+# can actually be fixed and its explanation is already on screen - rather than a
+# post-hoc check that would only strand the user after Claude has exited.
 TITLE="$(head -n1 "$PR_TITLE_FILE" 2>/dev/null || true)"
-[ -n "$TITLE" ] || TITLE="chore: fix linters in ${FIXED:-Physlib}"
-if [ ! -s "$PR_BODY_FILE" ]; then
-  printf 'Fixes the project linters for `%s` and removes it from scripts/LinterExemption.txt.\nVerified locally: the build and every linter pass.\n' \
-    "${FIXED:-the file}" > "$PR_BODY_FILE"
+if [ -z "$TITLE" ] || [ ! -s "$PR_BODY_FILE" ]; then
+  warn "Claude left no PR text - its signal that the file isn't clean yet. Your
+changes are staged on '$BRANCH' but nothing was committed or pushed. Re-run
+Claude on this branch to finish the fix, then re-run this script."
+  exit 0
 fi
 
 log "Proposed pull request:"

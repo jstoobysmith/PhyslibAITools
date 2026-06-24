@@ -198,6 +198,19 @@ BRANCH="golf-proof-$(date +%Y%m%d-%H%M%S)"
 log "Creating work branch $BRANCH off $BASE..."
 git checkout -b "$BRANCH" "$BASE" 2>/dev/null \
   || { warn "Branch $BRANCH exists; checking it out."; git checkout "$BRANCH"; }
+
+# Fail fast if there's no commit identity, rather than dying at the `git commit`
+# in step 7 after the 10+ minute build. We're inside the repo we'll commit in, so
+# `git config user.name` reflects the identity that commit would actually use
+# (a local setting, or an inherited global/system one).
+if [ -z "$(git config user.name || true)" ] || [ -z "$(git config user.email || true)" ]; then
+  die "No git commit identity is configured. Set one with:
+  git config --global user.name \"Your Name\"
+  git config --global user.email \"you@example.com\"
+then re-run this script. (To keep your email private, you can use your GitHub
+noreply address, shown at https://github.com/settings/emails.)"
+fi
+log "Git commit identity: $(git config user.name) <$(git config user.email)>"
  
 # --- 4. Build (slow the first time) ----------------------------------------
  
@@ -301,15 +314,19 @@ if [ -z "$(git diff --cached --name-only)" ]; then
   exit 0
 fi
 
-# The golfed source file is the single staged file.
-FIXED="$(git diff --cached --name-only | head -n1)"
-
-# Title and body come from the files Claude wrote; fall back if it left them empty.
+# Claude writes the PR title and body only once the build passes with the golfed
+# proof; if it couldn't golf the proof while keeping the build green, it leaves
+# them empty (see the prompt above). Treat empty PR text as that "couldn't finish"
+# signal: keep the changes staged on the branch, but don't commit, push, or open a
+# PR for an unverified golf. Verification stays with Claude in-session, where build
+# errors can actually be fixed and its explanation is already on screen - rather
+# than a post-hoc check that would only strand the user after Claude has exited.
 TITLE="$(head -n1 "$PR_TITLE_FILE" 2>/dev/null || true)"
-[ -n "$TITLE" ] || TITLE="chore: golf a proof in ${FIXED:-Physlib}"
-if [ ! -s "$PR_BODY_FILE" ]; then
-  printf 'Golfs one proof in `%s` for length, speed, and structure, without changing any theorem, lemma, or definition statement.\nVerified locally: the build passes.\n' \
-    "${FIXED:-the file}" > "$PR_BODY_FILE"
+if [ -z "$TITLE" ] || [ ! -s "$PR_BODY_FILE" ]; then
+  warn "Claude left no PR text - its signal that the proof isn't golfed yet. Your
+changes are staged on '$BRANCH' but nothing was committed or pushed. Re-run Claude
+on this branch to finish the golf, then re-run this script."
+  exit 0
 fi
 
 log "Proposed pull request:"
