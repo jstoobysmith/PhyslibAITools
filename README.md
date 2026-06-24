@@ -1,33 +1,85 @@
 # Physlib AI Tools
 
-## Scripts/auto-golf.sh
+## Scripts/physlib-auto-task.sh
 
-A script that uses [Claude Code](https://docs.claude.com/en/docs/claude-code/overview)
-to "golf" a single long proof in [Physlib](https://github.com/leanprover-community/physlib)
-— improving it for length, speed, and structure without changing any theorem,
-lemma, or definition statement — and open a pull request for the change.
+A generic one-shot harness that uses [Claude Code](https://docs.claude.com/en/docs/claude-code/overview)
+to run an automated task against [Physlib](https://github.com/leanprover-community/physlib)
+and open a pull request with the result. The surrounding setup is the same for
+every task; only the task prompt differs, so the one script can drive many
+different automated contributions.
 
-It shares the same setup as `auto-lint.sh` (install toolchain, fork/clone, build,
-register `lean-lsp-mcp`), but instead of fixing a linter-exempted file it launches
-Claude to find exactly one theorem or lemma with a long proof, golf only that
-proof, and verify the project still builds before opening the PR.
+The default task is **Golf**: find one theorem or lemma with a long proof and golf
+it for length, speed, and structure — without changing any theorem, lemma, or
+definition statement — then verify the project still builds before opening the PR.
+
+Given a fresh machine, it will:
+
+1. Install anything missing — Lean (`elan`/`lake`), the GitHub CLI (`gh`), `uv`,
+   and Claude Code.
+2. Sign you in to GitHub if you aren't already.
+3. Refuse to run if more than `MAX_OPEN_AUTO_PRS` (default 10) automated PRs (open
+   PRs whose title starts with `auto-`) are already open upstream, so a fleet of
+   runs can't flood the maintainers.
+4. Fork and clone Physlib into `physlib-auto/` (reusing the checkout if it exists).
+5. Create a fresh work branch off `upstream/master`.
+6. Fetch the Mathlib cache and build the project (the first build can take 10+
+   minutes).
+7. Register the `lean-lsp-mcp` server with Claude Code.
+8. Load the task prompt from `Tasks/<Task>.md` (a local copy if found, otherwise
+   fetched from this repo) and launch Claude to carry it out.
+9. Show you the staged diff and ask for confirmation before committing, pushing,
+   and opening the pull request (Claude writes the PR title and body).
+
+### Requirements
+
+- **A paid Claude plan** — Claude Pro/Max, or an Anthropic API account with credits.
+  The free tier cannot run Claude Code.
+- **A GitHub account**, used to fork Physlib and open the PR.
+- **`git` and `curl`** must already be present (the script exits if either is
+  missing).
+- **macOS (with Homebrew) or Debian/Ubuntu (with apt)** for the auto-install paths.
+  On other systems, install `gh` and Claude Code yourself first, then re-run.
+- **`npm`** is needed to auto-install Claude Code (skip if it's already installed).
+- Disk space and time for a full Mathlib build on the first run.
+
+Everything else (`elan`/`lake`, `gh`, `uv`, Claude Code) is installed automatically
+if missing.
 
 ### Usage
 
-The quickest way just run:
+The quickest way, run the default (Golf) task straight from GitHub:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/auto-golf.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/physlib-auto-task.sh | bash
 ```
 
 Or, if you've already cloned this repo:
 
 ```bash
-./Scripts/auto-golf.sh
+./Scripts/physlib-auto-task.sh          # interactive — you'll be asked which task
+./Scripts/physlib-auto-task.sh Golf     # run a specific task
 ```
 
-By default the script is interactive: Claude opens in its usual TUI for the golfing
-step (you quit it when it's done) and you confirm before the PR is pushed.
+Run it from wherever you want the `physlib-auto/` checkout to be created. If a
+`./physlib-auto` folder already exists in the current directory it is reused
+instead of cloning again, and if you run from inside an existing Lean project
+directory (one containing a `lakefile.toml` or `lakefile.lean`) it uses that
+directory.
+
+#### Choosing a task
+
+Tasks live in [`Tasks/`](Tasks/) as `Tasks/<Name>.md` — each file is the prompt for
+one task. Pick one with the first argument or the `TASK` environment variable;
+if you give neither, the script lists the available tasks and asks you to choose
+(falling back to `Golf` when there's no one to prompt, e.g. piped from `curl`).
+
+```bash
+TASK=Golf ./Scripts/physlib-auto-task.sh
+```
+
+To add a new task, drop a `Tasks/<Name>.md` prompt file in this repo — no change to
+the script is needed. The PR title/body handoff is standard and added by the script
+for every task (titles use the form `auto-<task>(<subject>): <description>`).
 
 #### Auto mode (fully unattended)
 
@@ -36,13 +88,14 @@ loop — Claude runs headless and exits on its own when finished, and the push/P
 step auto-confirms:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/auto-golf.sh | AUTO=1 bash
+curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/physlib-auto-task.sh | AUTO=1 bash
 ```
 
 or, from a local checkout:
 
 ```bash
-./Scripts/auto-golf.sh --auto
+AUTO=1 ./Scripts/physlib-auto-task.sh Golf
+./Scripts/physlib-auto-task.sh Golf --auto
 ```
 
 Auto mode requires a bit of setup, since nothing can prompt you:
@@ -52,90 +105,52 @@ Auto mode requires a bit of setup, since nothing can prompt you:
 - **Claude Code must already be signed in** (or `ANTHROPIC_API_KEY` /
   `CLAUDE_CODE_OAUTH_TOKEN` set) — headless mode won't do an interactive login.
 - Claude runs with `--permission-mode bypassPermissions`, so it edits files and runs
-  `lake`/`gh` **without per-action approval**. The golfing prompt is tightly scoped
-  (one proof, no statement changes, build must stay green, and it leaves the PR text
-  empty — which the script treats as "don't push" — if it can't finish), but it is
-  still running unattended. It's intended for the throwaway `physlib-auto/` checkout
-  the script creates.
+  `lake`/`gh` **without per-action approval**. Tasks are tightly scoped and leave the
+  PR text empty — which the script treats as "don't push" — if they can't finish,
+  but Claude is still running unattended. It's intended for the throwaway
+  `physlib-auto/` checkout the script creates.
 
-## Scripts/auto-lint.sh
+#### Environment variables
 
-A script that uses [Claude Code](https://docs.claude.com/en/docs/claude-code/overview)
-to fix a single linter-exempted file in [Physlib](https://github.com/leanprover-community/physlib)
-and open a pull request for the fix.
-
-Given a fresh machine, it will:
-
-1. Install anything missing — Lean (`elan`/`lake`), the GitHub CLI (`gh`), `uv`,
-   Claude Code, and (optionally) `ripgrep`.
-2. Sign you in to GitHub if you aren't already.
-3. Fork and clone Physlib into `physlib-auto/` (reusing the checkout if it exists).
-4. Create a fresh work branch off `upstream/master`.
-5. Fetch the Mathlib cache and build the project (the first build can take 10+
-   minutes).
-6. Register the `lean-lsp-mcp` server with Claude Code.
-7. Launch Claude to pick one file from `scripts/LinterExemption.txt`, fix it until
-   `lake exe runPhyslibLinters` and `./scripts/lint-style.sh` both pass, and remove
-   its line from the exemption list.
-8. Show you the staged diff and ask for confirmation before committing, pushing,
-   and opening the pull request (Claude writes the PR title and body).
-
-### Requirements
-
-- **macOS (with Homebrew) or Debian/Ubuntu (with apt)** for the auto-install paths.
-  On other systems, install `gh` and Claude Code yourself first, then re-run.
-- **`git` and `curl`** must already be present (the script exits if either is
-  missing).
-- **`npm`** is needed to auto-install Claude Code (skip if Claude Code is already
-  installed).
-- **A GitHub account**, used to fork Physlib and open the PR.
-- **A Claude Code login / API access**, since the fixing step runs Claude.
-- Disk space and time for a full Mathlib build on the first run.
-
-Everything else (`elan`/`lake`, `gh`, `uv`, `ripgrep`) is installed automatically
-if missing.
-
-### Usage
-
-The quickest way just run:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/auto-lint.sh | bash
-```
-
-Or, if you've already cloned this repo:
-
-```bash
-./Scripts/auto-lint.sh
-```
-
-Run it from wherever you want the `physlib-auto/` checkout to be created. If you
-run it from inside an existing Lean project directory (one containing a
-`lakefile.toml` or `lakefile.lean`), it uses that directory instead of cloning.
+| Variable | Effect |
+| --- | --- |
+| `TASK` | Which task to run (e.g. `Golf`); otherwise asked interactively. |
+| `AUTO` | `AUTO=1` runs fully unattended (same as `--auto`). |
+| `MAX_OPEN_AUTO_PRS` | Cap on concurrent open automated PRs before the script refuses to run (default `10`). |
+| `NO_COLOR` | Disable coloured output. |
+| `FORCE_COLOR` | Force coloured output on even when stdout isn't detected as a terminal. |
 
 ### Step-by-step
 
-1. **Get the script.** Clone this repo (or download just `Scripts/auto-lint.sh`),
-   and make it executable if needed: `chmod +x Scripts/auto-lint.sh`.
-2. **Run it:** `./Scripts/auto-lint.sh`. Run it from the directory where you want
+1. **Get the script.** Clone this repo (or download `Scripts/physlib-auto-task.sh`),
+   and make it executable if needed: `chmod +x Scripts/physlib-auto-task.sh`.
+2. **Run it:** `./Scripts/physlib-auto-task.sh`, from the directory where you want
    the `physlib-auto/` checkout created.
-3. **Authenticate if prompted.** If you aren't already signed in, `gh auth login`
+3. **Pick a task** if you didn't pass one — the script lists the tasks in `Tasks/`
+   and lets you choose by number or name.
+4. **Authenticate if prompted.** If you aren't already signed in, `gh auth login`
    runs interactively — follow its prompts to sign in to GitHub. You may also need
    to log in to Claude Code the first time.
-4. **Wait through install + build.** On a fresh machine the script installs the
+5. **Wait through install + build.** On a fresh machine the script installs the
    toolchain, fetches the Mathlib cache, and builds Physlib — the first build can
-   take 10+ minutes. (It will only need to do this for one run)
-5. **Let Claude do the fix.** When Claude launches it picks one file from
-   `scripts/LinterExemption.txt` and iterates until the build and both required
-   linters (`lake exe runPhyslibLinters` and `./scripts/lint-style.sh`) pass.
-   Grant it the permissions it needs to read/edit the file, run `lake`, and run the
-   linters. Read its summary of which file it fixed.
-6. **Quit Claude when it says it's done.** The script pauses while Claude runs and
-   resumes automatically once you exit (Claude will tell you to quit when finished).
-7. **Review the proposed PR.** The script prints the PR title and the staged diff
+   take 10+ minutes. (It only needs to do this once.)
+6. **Let Claude do the work.** Claude carries out the task and iterates until the
+   build succeeds. Grant it the permissions it needs to read/edit files and run
+   `lake`/`gh`. Read its summary of what it changed.
+7. **Quit Claude when it says it's done.** The script pauses while Claude runs and
+   resumes automatically once you exit (Claude tells you to quit when finished). In
+   auto mode this is automatic.
+8. **Review the proposed PR.** The script prints the PR title and the staged diff
    stat, then prompts `Push '<branch>' and open this PR ... [Y/n]`. Inspect the
    diff. Answer `n` to keep the changes staged locally without pushing, or accept
    to push the branch to your fork and open a PR against
    `leanprover-community/physlib`.
-8. **Check the opened PR.** Open the PR link, confirm the diff, title, and body
-   look correct, and that CI passes before asking for review. Check also the content
+9. **Check the opened PR.** Open the PR link, confirm the diff, title, and body
+   look correct, and that CI passes before asking for review.
+
+---
+
+> **Note:** `Scripts/auto-golf.sh` and `Scripts/auto-lint.sh` are the earlier,
+> single-purpose versions of this harness and are now superseded by
+> `physlib-auto-task.sh` (the Golf task, and a future Lint task, cover what they
+> did). They are kept only for reference.

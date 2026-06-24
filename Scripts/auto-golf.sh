@@ -335,7 +335,11 @@ PROMPT="$PROMPT
 
 Finally, once the build passes with the golfed proof, write the pull-request
 text so the script can open the PR for me:
-  - A concise, conventional-commit style PR title -> write it to: $PR_TITLE_FILE
+  - A PR title in EXACTLY this format: auto-golf(<subject>): <description>
+    where <subject> is the golfed theorem/lemma name (or its area/file) and
+    <description> is a concise summary of the change, e.g.
+    'auto-golf(inner_mul_le_norm): shorten Cauchy-Schwarz proof'. Write it to:
+    $PR_TITLE_FILE
   - A clear PR description (which theorem/lemma in which file, and how you golfed
     the proof for length, speed, and structure) in Markdown -> write it to:
     $PR_BODY_FILE
