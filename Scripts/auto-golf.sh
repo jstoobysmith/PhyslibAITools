@@ -249,7 +249,8 @@ than guessing.
    gh pr diff <n>). Do NOT pick a theorem or lemma that an open PR is already
    golfing (or whose file an open PR is already editing); if gh cannot reach the
    API, say so and carry on. Tell me which open PRs you saw, then claim your proof:
-   search the Lean source (e.g. under Physlib/) for a single `theorem` or `lemma`
+   search the Lean source (e.g. under Physlib/ or QuantumInfo/ (where 
+   there might be more golfing opportunities)) for a single `theorem` or `lemma`
    whose proof is long - many tactic lines, lots of repetition, or obviously
    heavier than it needs to be - and that no open PR is already touching. If the
    proof you'd naturally pick is already taken, move on to another long proof.
