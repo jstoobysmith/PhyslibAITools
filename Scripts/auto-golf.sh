@@ -243,10 +243,12 @@ are available, use them to read goal states, diagnostics, and hover info rather
 than guessing.
 
 1. Find exactly ONE theorem or lemma with a long proof. Search the Lean source
-   (e.g. under Physlib/) for a single `theorem` or `lemma` whose proof is long -
+   (e.g. under Physlib/ or QuantumInfo/) for a single `theorem` or `lemma` whose proof is long -
    many tactic lines, lots of repetition, or obviously heavier than it needs to
    be. This whole run is about that one proof and nothing else: you change one
    proof and one proof only, and you never start or edit a second proof or file.
+   Make sure you randomize the theorem or lemma you choose, as other people may 
+   be working with the same script.
 2. Golf that one proof, improving it along three axes:
      i)   length    - fewer lines / less repetition / more idiomatic tactics
      ii)  speed      - faster to elaborate (avoid expensive tactics like heavy
