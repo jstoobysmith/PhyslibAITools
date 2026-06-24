@@ -242,13 +242,19 @@ to "golf" (improve) EXACTLY ONE long proof. If Lean LSP tools (from lean-lsp-mcp
 are available, use them to read goal states, diagnostics, and hover info rather
 than guessing.
 
-1. Find exactly ONE theorem or lemma with a long proof. Search the Lean source
-   (e.g. under Physlib/ or QuantumInfo/) for a single `theorem` or `lemma` whose proof is long -
-   many tactic lines, lots of repetition, or obviously heavier than it needs to
-   be. This whole run is about that one proof and nothing else: you change one
-   proof and one proof only, and you never start or edit a second proof or file.
-   Make sure you randomize the theorem or lemma you choose, as other people may 
-   be working with the same script.
+1. Choose a proof to golf - but FIRST, before you claim anything, check it is not
+   already being worked on. Run
+     gh pr list --repo leanprover-community/physlib --state open --limit 1000
+   and inspect likely candidates' changed files (gh pr view <n> --json files, or
+   gh pr diff <n>). Do NOT pick a theorem or lemma that an open PR is already
+   golfing (or whose file an open PR is already editing); if gh cannot reach the
+   API, say so and carry on. Tell me which open PRs you saw, then claim your proof:
+   search the Lean source (e.g. under Physlib/) for a single `theorem` or `lemma`
+   whose proof is long - many tactic lines, lots of repetition, or obviously
+   heavier than it needs to be - and that no open PR is already touching. If the
+   proof you'd naturally pick is already taken, move on to another long proof.
+   This whole run is about that one proof and nothing else: you change one proof
+   and one proof only, and you never start or edit a second proof or file.
 2. Golf that one proof, improving it along three axes:
      i)   length    - fewer lines / less repetition / more idiomatic tactics
      ii)  speed      - faster to elaborate (avoid expensive tactics like heavy

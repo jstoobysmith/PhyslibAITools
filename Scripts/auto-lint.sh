@@ -262,10 +262,17 @@ to pick one linter-exempted file and fix it. If Lean LSP tools (from
 lean-lsp-mcp) are available, use them to read the file's diagnostics, goal states,
 and hover info rather than guessing.
  
-1. Choose a file: read scripts/LinterExemption.txt and pick EXACTLY ONE file from
-   it. This whole run is about that single file - you fix one file and one file
-   only, and you never start, edit, or lint a second file (not even if touching
-   another file would help). 
+1. Choose a file - but FIRST, before you claim anything, check it is not already
+   being worked on. Run
+     gh pr list --repo leanprover-community/physlib --state open --limit 1000
+   and inspect likely candidates' changed files (gh pr view <n> --json files, or
+   gh pr diff <n>). Do NOT pick a file that already has an open PR removing its
+   line from scripts/LinterExemption.txt (or otherwise targeting it); if gh
+   cannot reach the API, say so and carry on. Tell me which open PRs you saw, then
+   claim your file: read scripts/LinterExemption.txt and pick EXACTLY ONE file from
+   it that no open PR is already handling. This whole run is about that single
+   file - you fix one file and one file only, and you never start, edit, or lint
+   a second file (not even if touching another file would help). 
 2. The two linters that MUST pass (these are the ones CI enforces and the only
    ones required for this PR) are:
      - `lake exe runPhyslibLinters`  (the Lean/Physlib linters)
