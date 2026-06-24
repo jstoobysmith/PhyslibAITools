@@ -93,6 +93,10 @@ UPSTREAM_REPO="leanprover-community/physlib"
 # MAX_OPEN_AUTO_PRS env var if you ever need to.
 MAX_OPEN_AUTO_PRS="${MAX_OPEN_AUTO_PRS:-10}"
 
+# Credit Claude as a co-author on the commit. GitHub reads this trailer and shows
+# Claude as a co-author on the resulting PR (your git identity stays the author).
+CLAUDE_COAUTHOR="Claude <noreply@anthropic.com>"
+
 # Make tools installed in non-default locations visible to the checks below, so
 # the preflight reflects reality even before the install steps re-export PATH.
 export PATH="$HOME/.elan/bin:$HOME/.local/bin:$PATH"
@@ -573,7 +577,10 @@ else
 fi
 
 log "Committing..."
-git commit -m "$TITLE"
+# Separate -m args become paragraphs (blank line between), so the trailer lands as
+# its own block at the end of the message, which is what GitHub needs to attribute
+# the co-author.
+git commit -m "$TITLE" -m "Co-authored-by: $CLAUDE_COAUTHOR"
 log "Pushing '$BRANCH' to your fork..."
 git push -u origin "$BRANCH"
 
