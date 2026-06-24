@@ -28,6 +28,19 @@ have() { command -v "$1" >/dev/null 2>&1; }
  
 OS="$(uname -s)"
 
+# Auto mode: run start-to-finish with no human in the loop. Turn it on with the
+# AUTO=1 environment variable (handy for `curl ... | AUTO=1 bash`) or a --auto/-y
+# flag. When on, Claude runs headless (`claude -p`, so it finishes and exits on its
+# own instead of waiting in the TUI) and the final push/PR prompt auto-confirms.
+# Because nobody is there to approve things, auto mode REQUIRES gh and Claude Code
+# to be signed in already, and it grants Claude bypass-permission tool access.
+AUTO="${AUTO:-0}"
+for arg in "$@"; do
+  case "$arg" in
+    --auto|-y|--yes) AUTO=1 ;;
+  esac
+done
+
 # Make tools installed in non-default locations visible to the checks below, so
 # the preflight reflects reality even before the install steps re-export PATH.
 export PATH="$HOME/.elan/bin:$HOME/.local/bin:$PATH"
@@ -56,6 +69,31 @@ claude_signed_in() {
   return 1
 }
 
+# Canonical location of this script on GitHub, used for the update check below.
+SELF_RAW_URL="https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/auto-golf.sh"
+
+# Best-effort self-update check: compare the running script against the copy on
+# GitHub and report whether a newer version exists. Never fatal - a failed fetch or
+# a piped (`curl | bash`) invocation, where there's no local file to compare, just
+# downgrades to an info line. Emits a check() line so it fits the preflight report.
+check_for_updates() {
+  local self remote
+  self="${BASH_SOURCE[0]:-$0}"
+  if [ ! -f "$self" ] || [ ! -r "$self" ]; then
+    check info "Update check: skipped (running from a pipe; re-fetch the URL for the latest)"
+    return 0
+  fi
+  remote="$(curl -fsSL --max-time 10 "$SELF_RAW_URL" 2>/dev/null || true)"
+  if [ -z "$remote" ]; then
+    check info "Update check: couldn't reach GitHub (offline?); continuing with this copy"
+  elif [ "$remote" = "$(cat "$self")" ]; then
+    check ok "auto-golf.sh is up to date"
+  else
+    check missing "auto-golf.sh is OUT OF DATE - a newer version is on GitHub"
+    printf '      Update with: git pull  (or re-download: %s)\n' "$SELF_RAW_URL"
+  fi
+}
+
 # --- 0. Preflight: report the status of every prerequisite ------------------
 
 log "Prerequisite check (anything unchecked will be installed/set up below):"
@@ -66,6 +104,9 @@ have lake   && check ok "Lean toolchain (elan/lake)"    || check missing "Lean t
 have gh     && check ok "GitHub CLI (gh)"               || check missing "GitHub CLI (gh)"
 { have uv || have uvx; } && check ok "uv (for lean-lsp-mcp)" || check missing "uv (for lean-lsp-mcp)"
 have claude && check ok "Claude Code (claude)"          || check missing "Claude Code (claude)"
+
+# Is this script itself up to date with GitHub?
+check_for_updates
 
 # GitHub authentication
 if have gh && gh auth status >/dev/null 2>&1; then
@@ -158,6 +199,10 @@ fi
  
 log "Checking GitHub authentication..."
 if ! gh auth status >/dev/null 2>&1; then
+  if [ "$AUTO" = "1" ]; then
+    die "Auto mode needs GitHub already authenticated. Run 'gh auth login' (or set \
+GH_TOKEN) and re-run."
+  fi
   log "Signing in to GitHub..."
   gh auth login
 else
@@ -282,8 +327,6 @@ and tell me exactly what's blocking - don't leave the proof half-edited or
 broken. Do NOT commit, push, or open a pull request yourself - the script does
 that after you exit. When you're done, tell me which theorem/lemma you golfed (and
 in which file), show the before/after proof, and paste the final build output.
-
-Write a message of how to quit claude and that the script will continue after you exit claude.
 PROMPT_EOF
 
 # Where Claude should leave the PR text. These paths are dynamic, so append them
@@ -299,11 +342,28 @@ text so the script can open the PR for me:
 Write nothing else to those two files. If you could NOT golf the proof while
 keeping the build green, leave both files empty so the script knows not to open a
 PR."
- 
-log "Launching Claude to fix a file..."
-set +e
-claude "$PROMPT"
-set -e
+
+# In interactive mode Claude waits in the TUI, so tell the user how to hand control
+# back to the script. In auto mode (headless `claude -p`) Claude exits on its own,
+# so this note would be misleading - skip it.
+if [ "$AUTO" != "1" ]; then
+  PROMPT="$PROMPT
+
+Finally, write a short message telling me how to quit Claude and that this script
+will continue automatically once I exit Claude."
+fi
+
+if [ "$AUTO" = "1" ]; then
+  log "Launching Claude headless (auto mode) - it will golf a proof and exit on its own..."
+  set +e
+  claude -p "$PROMPT" --permission-mode bypassPermissions
+  set -e
+else
+  log "Launching Claude to golf a proof..."
+  set +e
+  claude "$PROMPT"
+  set -e
+fi
  
 # --- 7. Commit, push, and open the pull request ----------------------------
  
@@ -335,11 +395,15 @@ printf '  Title: %s\n\n' "$TITLE"
 git --no-pager diff --cached --stat
 printf '\n'
 
-read -r -p "Push '$BRANCH' and open this PR against leanprover-community/physlib? [Y/n] " REPLY
-case "$REPLY" in
-  [Nn]*) log "No problem - changes are staged on '$BRANCH'. Nothing pushed."; exit 0 ;;
-  *) ;;
-esac
+if [ "$AUTO" = "1" ]; then
+  log "Auto mode: pushing '$BRANCH' and opening the PR without prompting."
+else
+  read -r -p "Push '$BRANCH' and open this PR against leanprover-community/physlib? [Y/n] " REPLY
+  case "$REPLY" in
+    [Nn]*) log "No problem - changes are staged on '$BRANCH'. Nothing pushed."; exit 0 ;;
+    *) ;;
+  esac
+fi
 
 log "Committing..."
 git commit -m "$TITLE"

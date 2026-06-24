@@ -26,6 +26,38 @@ Or, if you've already cloned this repo:
 ./Scripts/auto-golf.sh
 ```
 
+By default the script is interactive: Claude opens in its usual TUI for the golfing
+step (you quit it when it's done) and you confirm before the PR is pushed.
+
+#### Auto mode (fully unattended)
+
+Set `AUTO=1` (or pass `--auto` / `-y`) to run start-to-finish with no human in the
+loop — Claude runs headless and exits on its own when finished, and the push/PR
+step auto-confirms:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/auto-golf.sh | AUTO=1 bash
+```
+
+or, from a local checkout:
+
+```bash
+./Scripts/auto-golf.sh --auto
+```
+
+Auto mode requires a bit of setup, since nothing can prompt you:
+
+- **GitHub must already be authenticated** (`gh auth login`, or a `GH_TOKEN` in the
+  environment). The script exits early if it isn't.
+- **Claude Code must already be signed in** (or `ANTHROPIC_API_KEY` /
+  `CLAUDE_CODE_OAUTH_TOKEN` set) — headless mode won't do an interactive login.
+- Claude runs with `--permission-mode bypassPermissions`, so it edits files and runs
+  `lake`/`gh` **without per-action approval**. The golfing prompt is tightly scoped
+  (one proof, no statement changes, build must stay green, and it leaves the PR text
+  empty — which the script treats as "don't push" — if it can't finish), but it is
+  still running unattended. It's intended for the throwaway `physlib-auto/` checkout
+  the script creates.
+
 ## Scripts/auto-lint.sh
 
 A script that uses [Claude Code](https://docs.claude.com/en/docs/claude-code/overview)
