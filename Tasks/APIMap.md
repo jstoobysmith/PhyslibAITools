@@ -56,10 +56,9 @@ them to confirm declarations exist rather than guessing.
      Title: <the API title, e.g. "Harmonic oscillator">
 
      Overview: |
-         <a short overview of the API as it ACTUALLY exists in this directory -
-          summarise from the directory's module docstrings and the key data
-          structure(s) defined there; use the GitHub issue only to frame it, do not
-          paste its prose>
+         <one or two sentences, as brief as a current API issue - just the key data
+          structure and what the API is for; grounded in the directory's module
+          docstrings, not embellished>
 
      ParentAPIs:
        - <an API this one builds on, by Title or directory path; use [] if none>
@@ -69,13 +68,13 @@ them to confirm declarations exist rather than guessing.
 
      Requirements:
 
-       - description: <a requirement this directory actually satisfies>
+       - description: <a requirement the directory's Lean files provide (per issue/TODOs)>
          done: true
          location: <path (and key declaration) that satisfies it, e.g.
                     Physlib/ClassicalMechanics/HarmonicOscillator/Basic.lean
                     (HarmonicOscillator)>
 
-       - description: <a requirement that is not yet met>
+       - description: <an existing requirement (issue or TODO) not yet met>
          done: false
          location: N/A
 
@@ -84,9 +83,10 @@ them to confirm declarations exist rather than guessing.
        issue is a REFERENCE for the API's intended scope, naming and the things still
        to build - it is NOT something to copy. Where the issue and the code disagree,
        the code is the source of truth.
-     - `Overview`: write it from what the directory actually provides - summarise the
-       files' module docstrings and the key data structure(s) defined there. Use the
-       issue only to frame it; do not paste its prose.
+     - `Overview`: keep it as brief as the overview in a current API issue - one or
+       two sentences naming the key data structure and what the API is for. Ground it
+       in the directory's module docstrings; do not embellish (less talk, fewer
+       mistakes).
      - `ParentAPIs`: the other APIs this one builds on. Determine them from the
        directory's imports and usages of other API directories (e.g. it imports and
        uses another physics API, or a Mathematics/ API). List them by Title or
@@ -96,11 +96,14 @@ them to confirm declarations exist rather than guessing.
        directory (e.g. a module-docstring References section) or from the GitHub
        issue - NEVER invent a citation (humans have to verify references). Use `[]`
        if you can't find a real reference.
-     - Requirements: a `done: true` requirement must be one this directory genuinely
-       satisfies (with a real `location`). For the `done: false` requirements - the
-       things still to build - use the issue's requirement list as a guide if there
-       is one, plus any obvious gaps you can see in the directory; with no issue,
-       derive them from the directory and the obvious next steps for the API.
+     - Requirements: build the list using three references together - the GitHub
+       `API` issue's requirement checklist (if there is one), existing TODO tags in
+       the directory, and the existing Lean files. The Lean files tell you what is
+       already there: a `done: true` requirement describes functionality the
+       directory genuinely provides, with a real `location`. The issue checklist and
+       existing TODOs supply the `done: false` items still to build. Do NOT invent
+       new future requirements beyond the issue and TODOs - a separate task will
+       handle generating new requirements/TODOs later.
      - For EVERY requirement, decide `done` by CHECKING THE CODE, not by trusting
        the issue's checkboxes. Use lean-lsp / grep / the files to confirm the
        declaration exists and does what the requirement says.
