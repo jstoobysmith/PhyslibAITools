@@ -24,7 +24,8 @@ them to confirm declarations exist rather than guessing.
    under Physlib/ (or QuantumInfo/) that forms a coherent API, i.e.
    is built around a key data structure and its surrounding definitions and lemmas
    (e.g. Physlib/ClassicalMechanics/HarmonicOscillator, Physlib/Electromagnetism/
-   Kinematics). You are NOT limited to directories named in GitHub issues. A
+   Kinematics). You are NOT limited to directories named in GitHub issues (although this 
+   should be the starting point). A
    directory is eligible if EITHER:
      (a) it has no `API-map.yaml` yet (you will create one), OR
      (b) it already has an `API-map.yaml` that is out of date - i.e. a Lean file in
@@ -131,3 +132,12 @@ half-written or guessed map. Do NOT commit, push, or open a pull request yoursel
 that after you exit. When you're done, tell me which API you mapped (and the
 directory), paste the final API-map.yaml, and note which requirements you marked
 done vs not and how you verified each.
+
+For the PR description (which I will mention below where to put it), I want you to do the following: 
+- Provide a code snippet for each part of the yaml file.
+- Provide a code snippet from the part of Physlib or the github issue which motiviated that part of the yaml file. 
+To produce the code snippets from Physlib you can use e.g. https://github.com/leanprover-community/physlib/blob/.../Physlib/Cosmology/Basic.lean#L9-L12. 
+
+The aim here is to make it as easy as possible for a reviewer to check that you have not made anything up, 
+by providing them with a tick-box exercise of comparing what the yaml file says and what already exists.
+Because of this every claim must be justfied. 
