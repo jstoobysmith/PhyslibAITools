@@ -47,7 +47,10 @@ if missing.
 
 ### Usage
 
-The quickest way, run the default (Golf) task straight from GitHub:
+By default the script runs **fully automatically** — Claude runs headless, finishes
+on its own, and the PR is pushed without prompting (see the requirements under
+[Auto mode](#auto-mode-default) below). The quickest way, run the default (Golf)
+task straight from GitHub:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/physlib-auto-task.sh | bash
@@ -56,22 +59,23 @@ curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Sc
 Or, if you've already cloned this repo:
 
 ```bash
-./Scripts/physlib-auto-task.sh          # interactive — you'll be asked which task
-./Scripts/physlib-auto-task.sh Golf     # run a specific task
+./Scripts/physlib-auto-task.sh             # automatic, default task (Golf)
+./Scripts/physlib-auto-task.sh Generalize  # automatic, a specific task
+./Scripts/physlib-auto-task.sh --manual    # interactive: pick a task, confirm before pushing
 ```
 
 Run it from wherever you want the `physlib-auto/` checkout to be created. If a
 `./physlib-auto` folder already exists in the current directory it is reused
-instead of cloning again, and if you run from inside an existing Lean project
-directory (one containing a `lakefile.toml` or `lakefile.lean`) it uses that
-directory.
+instead of cloning again; otherwise a fresh fork is cloned into it. The script
+always works in that dedicated checkout, never in whatever directory you launch
+from.
 
 #### Choosing a task
 
 Tasks live in [`Tasks/`](Tasks/) as `Tasks/<Name>.md` — each file is the prompt for
-one task. Pick one with the first argument or the `TASK` environment variable;
-if you give neither, the script lists the available tasks and asks you to choose
-(falling back to `Golf` when there's no one to prompt, e.g. piped from `curl`).
+one task. Pick one with the first argument or the `TASK` environment variable; if
+you give neither, the default `Golf` is used (in `--manual` mode the script instead
+lists the available tasks and asks you to choose).
 
 ```bash
 TASK=Golf ./Scripts/physlib-auto-task.sh
@@ -81,21 +85,21 @@ To add a new task, drop a `Tasks/<Name>.md` prompt file in this repo — no chan
 the script is needed. The PR title/body handoff is standard and added by the script
 for every task (titles use the form `auto-<task>(<subject>): <description>`).
 
-#### Auto mode (fully unattended)
+#### Auto mode (default)
 
-Set `AUTO=1` (or pass `--auto` / `-y`) to run start-to-finish with no human in the
-loop — Claude runs headless and exits on its own when finished, and the push/PR
-step auto-confirms:
+Auto mode is the **default**: the script runs start-to-finish with no human in the
+loop — Claude runs headless and exits on its own when finished, and the push/PR step
+auto-confirms. Nothing extra is needed to enable it:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/physlib-auto-task.sh | AUTO=1 bash
+curl -fsSL https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main/Scripts/physlib-auto-task.sh | bash
 ```
 
-or, from a local checkout:
+To run **interactively** instead — Claude opens in its TUI and you confirm before
+anything is pushed — pass `--manual` / `-i` (or set `AUTO=0`):
 
 ```bash
-AUTO=1 ./Scripts/physlib-auto-task.sh Golf
-./Scripts/physlib-auto-task.sh Golf --auto
+./Scripts/physlib-auto-task.sh --manual
 ```
 
 Auto mode requires a bit of setup, since nothing can prompt you:
@@ -114,8 +118,8 @@ Auto mode requires a bit of setup, since nothing can prompt you:
 
 | Variable | Effect |
 | --- | --- |
-| `TASK` | Which task to run (e.g. `Golf`); otherwise asked interactively. |
-| `AUTO` | `AUTO=1` runs fully unattended (same as `--auto`). |
+| `TASK` | Which task to run (e.g. `Golf`); defaults to `Golf` (in `--manual` mode you're asked). |
+| `AUTO` | Auto mode, on by default (`AUTO=1`). Set `AUTO=0` (or pass `--manual` / `-i`) for an interactive run. |
 | `MAX_OPEN_AUTO_PRS` | Cap on concurrent open automated PRs before the script refuses to run (default `10`). |
 | `NO_COLOR` | Disable coloured output. |
 | `FORCE_COLOR` | Force coloured output on even when stdout isn't detected as a terminal. |

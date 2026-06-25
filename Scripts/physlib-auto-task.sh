@@ -61,13 +61,14 @@ have() { command -v "$1" >/dev/null 2>&1; }
  
 OS="$(uname -s)"
 
-# Auto mode: run start-to-finish with no human in the loop. Turn it on with the
-# AUTO=1 environment variable (handy for `curl ... | AUTO=1 bash`) or a --auto/-y
-# flag. When on, Claude runs headless (`claude -p`, so it finishes and exits on its
-# own instead of waiting in the TUI) and the final push/PR prompt auto-confirms.
-# Because nobody is there to approve things, auto mode REQUIRES gh and Claude Code
-# to be signed in already, and it grants Claude bypass-permission tool access.
-AUTO="${AUTO:-0}"
+# Auto mode is the DEFAULT: run start-to-finish with no human in the loop. Claude
+# runs headless (`claude -p`, so it finishes and exits on its own instead of waiting
+# in the TUI) and the final push/PR step auto-confirms. Because nobody is there to
+# approve things, auto mode REQUIRES gh and Claude Code to be signed in already, and
+# it grants Claude bypass-permission tool access.
+# To run interactively instead, pass --manual/-i (or set AUTO=0): Claude opens in its
+# TUI (you quit it when done) and you confirm before anything is pushed.
+AUTO="${AUTO:-1}"
 # Which task to run. A task may be given in advance - the TASK env var or the first
 # non-flag argument - otherwise we ask for it interactively below (see choose_task),
 # falling back to this default when there's no one to ask. The prompt for a task
@@ -77,9 +78,10 @@ TASK_GIVEN=0
 TASK="${TASK:-Golf}"
 for arg in "$@"; do
   case "$arg" in
-    --auto|-y|--yes) AUTO=1 ;;
-    -*)              warn "Ignoring unknown flag: $arg" ;;
-    *)               TASK="$arg"; TASK_GIVEN=1 ;;
+    --auto|-y|--yes)           AUTO=1 ;;
+    --manual|--interactive|-i) AUTO=0 ;;
+    -*)                        warn "Ignoring unknown flag: $arg" ;;
+    *)                         TASK="$arg"; TASK_GIVEN=1 ;;
   esac
 done
 
@@ -216,6 +218,20 @@ choose_task() {
   fi
 }
 
+# Weighted random task picker, used in auto mode when no task was given. Weights are
+# out of 100 and should sum to 100; edit the table to change the mix. Each entry is
+# Name:weight, and a task is chosen with probability weight/100.
+TASK_WEIGHTS="Golf:80 LintQI:20"
+pick_weighted_task() {
+  local r=$(( RANDOM % 100 )) acc=0 entry name="" weight
+  for entry in $TASK_WEIGHTS; do
+    name="${entry%%:*}"; weight="${entry##*:}"
+    acc=$(( acc + weight ))
+    [ "$r" -lt "$acc" ] && { printf '%s' "$name"; return 0; }
+  done
+  printf '%s' "$name"   # fallback if weights sum to < 100: last entry
+}
+
 # Friendly intro shown at startup: what this does and the handful of knobs worth
 # knowing before the long build kicks off.
 welcome() {
@@ -226,9 +242,9 @@ ${C_BOLD}${C_BLUE}  Physlib Auto-Task${C_RESET}  -  run an automated Claude task
 ${C_BOLD}${C_BLUE}===============================================================${C_RESET}
 
 It forks & builds Physlib, has Claude carry out a task (default
-${C_BOLD}Golf${C_RESET}), then opens a pull request with the result. You stay in
-control: in normal mode you review the diff and confirm before anything
-is pushed.
+${C_BOLD}Golf${C_RESET}), then opens a pull request with the result. It runs fully
+automatically by default; pass ${C_BOLD}--manual${C_RESET} to review the diff and
+confirm before anything is pushed.
 
 ${C_CYAN}Requirements${C_RESET}
   ${C_GREEN}*${C_RESET} A ${C_BOLD}paid Claude plan${C_RESET} (Claude Pro/Max, or API credits) - the
@@ -241,26 +257,24 @@ ${C_CYAN}Requirements${C_RESET}
   ${C_GREEN}*${C_RESET} Disk space and time for a full Mathlib build on the first run.
 
 ${C_CYAN}Examples${C_RESET}
-  ${C_DIM}# interactive - you'll be asked which task to run${C_RESET}
+  ${C_DIM}# default: fully automatic, default task (Golf)${C_RESET}
   ./$SELF_NAME
 
-  ${C_DIM}# run a specific task from the command line${C_RESET}
+  ${C_DIM}# automatic, a specific task${C_RESET}
   ./$SELF_NAME Golf
 
-  ${C_DIM}# fully unattended: headless Claude, PR pushed automatically${C_RESET}
-  AUTO=1 ./$SELF_NAME Golf
+  ${C_DIM}# interactive instead: pick a task, review & confirm before pushing${C_RESET}
+  ./$SELF_NAME --manual
 
-  ${C_DIM}# one-liner straight from GitHub (default task)${C_RESET}
+  ${C_DIM}# one-liner straight from GitHub (automatic, default task)${C_RESET}
   curl -fsSL $SELF_RAW_URL | bash
 
-  ${C_DIM}# ...the same, unattended${C_RESET}
-  curl -fsSL $SELF_RAW_URL | AUTO=1 bash
-
 ${C_CYAN}Tips${C_RESET}
-  ${C_GREEN}*${C_RESET} ${C_BOLD}Auto mode${C_RESET} (${C_BOLD}AUTO=1${C_RESET} or ${C_BOLD}--auto${C_RESET}) runs with no prompts - it needs
-    GitHub and Claude Code already signed in.
-  ${C_GREEN}*${C_RESET} ${C_BOLD}Pick a task${C_RESET} with an argument or ${C_BOLD}TASK=Golf${C_RESET}; otherwise you're
-    asked. Tasks live in ${C_BOLD}Tasks/<Name>.md${C_RESET}.
+  ${C_GREEN}*${C_RESET} ${C_BOLD}Automatic by default${C_RESET}: no prompts, PR pushed for you - needs GitHub
+    and Claude Code already signed in. Use ${C_BOLD}--manual${C_RESET} (or ${C_BOLD}AUTO=0${C_RESET}) to review
+    and confirm each step yourself.
+  ${C_GREEN}*${C_RESET} ${C_BOLD}Pick a task${C_RESET} with an argument or ${C_BOLD}TASK=Golf${C_RESET} (default ${C_BOLD}Golf${C_RESET});
+    in manual mode you're asked. Tasks live in ${C_BOLD}Tasks/<Name>.md${C_RESET}.
   ${C_GREEN}*${C_RESET} ${C_BOLD}Reuses your checkout${C_RESET}: if a ${C_BOLD}./physlib-auto${C_RESET} folder already
     exists in the current directory, it's reused instead of cloning again.
   ${C_GREEN}*${C_RESET} ${C_BOLD}Good citizen${C_RESET}: won't run if more than ${C_BOLD}$MAX_OPEN_AUTO_PRS${C_RESET} automated PRs
@@ -272,11 +286,16 @@ EOF
 
 welcome
 
-# If no task was specified up front, ask for one - but only on an interactive run.
-# Auto mode and piped/no-TTY runs (where there's nobody to prompt, and stdin is the
-# script itself) keep the default instead.
-if [ "$TASK_GIVEN" -eq 0 ] && [ "$AUTO" != "1" ] && [ -t 0 ]; then
-  choose_task
+# If no task was specified up front, decide which one to run. In auto mode we pick a
+# weighted-random task (so unattended runs spread across the task mix); interactively
+# we ask. A non-interactive manual run just keeps the default.
+if [ "$TASK_GIVEN" -eq 0 ]; then
+  if [ "$AUTO" = "1" ]; then
+    TASK="$(pick_weighted_task)"
+    log "Auto mode: randomly selected task '$TASK' (weights $TASK_WEIGHTS)."
+  elif [ -t 0 ]; then
+    choose_task
+  fi
 fi
 # Lower-cased task name, used for the work-branch name and the PR title prefix.
 TASK_LC="$(printf '%s' "$TASK" | tr '[:upper:]' '[:lower:]')"
@@ -314,9 +333,7 @@ else
 fi
 
 # Physlib checkout / working folder
-if [ -f lakefile.toml ] || [ -f lakefile.lean ]; then
-  check ok "Physlib checkout (using the current directory)"
-elif [ -d physlib-auto ]; then
+if [ -d physlib-auto ]; then
   check ok "./physlib-auto folder (reusing existing checkout)"
 else
   check info "./physlib-auto folder not found - that's OK, we'll create one"
@@ -419,9 +436,10 @@ fi
 
 # --- 3. Fork + clone --------------------------------------------------------
  
-if [ -f lakefile.toml ] || [ -f lakefile.lean ]; then
-  log "Already inside a Lean project directory; using it."
-elif [ -d physlib-auto ]; then
+# Always work in a dedicated physlib-auto checkout that this script owns - reuse it
+# if it's already here, otherwise fork + clone it. (We never operate on whatever
+# directory you happen to launch from, so a stray lakefile can't redirect the run.)
+if [ -d physlib-auto ]; then
   log "Reusing existing physlib-auto checkout (no re-clone)."
   cd physlib-auto
 else
@@ -431,6 +449,7 @@ else
   gh repo fork "$UPSTREAM_REPO" --clone -- physlib-auto
   cd physlib-auto
 fi
+CHECKOUT_DIR="$(pwd)"
 
 # Start a fresh working branch off upstream master, so edits never land on master,
 # don't stack on a leftover branch from a previous run in a reused checkout, and
@@ -466,12 +485,23 @@ fi
 log "Git commit identity: $(git config user.name) <$(git config user.email)>"
  
 # --- 4. Build (slow the first time) ----------------------------------------
- 
+
+# Bail out clearly if the cache fetch or build fails. The usual cause is a corrupt
+# or half-written checkout/cache, and the reliable fix is a fresh clone - so point
+# the user straight at deleting the checkout we own.
+build_die() {
+  die "$1
+
+This usually means the existing checkout or its Mathlib cache is in a bad state.
+Delete the physlib-auto checkout and re-run this script for a clean clone + build:
+  rm -rf \"$CHECKOUT_DIR\""
+}
+
 log "Fetching the Mathlib cache..."
-lake exe cache get
+lake exe cache get || build_die "Failed to fetch the Mathlib cache (lake exe cache get)."
 log "Mathlib cache fetched."
 log "Building Physlib (the first build can take 10+ minutes)..."
-lake build
+lake build || build_die "Failed to build Physlib (lake build)."
 log "Build complete."
  
 # --- 5. Register the Lean LSP MCP server -----------------------------------
