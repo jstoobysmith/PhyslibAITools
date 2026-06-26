@@ -2,7 +2,8 @@
 
 You're working in the Physlib repository (leanprover-community/physlib, a Lean 4
 physics library). Your task is to minimize the imports of EXACTLY ONE file - remove
-the `import` lines it doesn't actually need. If Lean LSP tools (from lean-lsp-mcp)
+the `import` lines it doesn't actually need, or reduce the imports 
+to more basic imports. If Lean LSP tools (from lean-lsp-mcp)
 are available, use them to check what each file really depends on rather than
 guessing.
 
@@ -22,9 +23,7 @@ You only ever touch `import` lines.
 
 2. Minimize that file's imports:
      - Remove every `import` at the top of the file that the file does not actually
-       need (directly or to state/prove its own declarations). `lake exe shake` (if
-       available) can help spot unused imports; otherwise reason from what the file
-       uses and confirm by building.
+       need (directly or to state/prove its own declarations). 
      - Do not add new imports to this file to "replace" a removed one unless the
        file genuinely uses that more specific module directly; the goal is a
        smaller, honest import list, not a reshuffle.

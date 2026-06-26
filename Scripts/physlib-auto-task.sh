@@ -26,6 +26,16 @@
 #   TASK=Golf ./physlib-auto-task.sh
 #   curl -fsSL <raw-url> | bash              # runs the default task (Golf)
 #
+# Tasks come in two flavours, both under Tasks/:
+#   * Markdown (Tasks/<Task>.md)  - just the prompt; always run against Physlib,
+#     in a ./physlib-auto checkout. This is the default.
+#   * YAML     (Tasks/<Task>.yaml) - the prompt PLUS the repo to fork and the local
+#     checkout folder, so the same harness can target any Lean repo. A YAML task
+#     must set three fields: 'repo:' (e.g. ImperialCollegeLondon/FLT), 'dir:' (the
+#     checkout folder, e.g. flt-auto), and 'prompt: |' (the task text). See the
+#     YAML schema note further down and the example task files.
+# When both Tasks/<Task>.yaml and Tasks/<Task>.md exist, the YAML one wins.
+#
 # Auto-install paths are tested for macOS (Homebrew) and Debian/Ubuntu (apt).
 # On other systems, install gh and Claude Code yourself first, then re-run.
  
@@ -58,7 +68,14 @@ log()  { printf '\n%s==>%s %s\n'   "$C_BLUE"   "$C_RESET" "$*"; }
 warn() { printf '%s[warn]%s %s\n'  "$C_YELLOW" "$C_RESET" "$*"; }
 die()  { printf '%s[error]%s %s\n' "$C_RED"    "$C_RESET" "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
- 
+
+# Temp files to delete when the script exits - a downloaded task file (resolve_task)
+# and the PR-text handoff files (step 6). Registered here once so any temp we make
+# is cleaned up no matter where we leave off.
+CLEANUP_FILES=()
+cleanup() { [ "${#CLEANUP_FILES[@]}" -gt 0 ] && rm -f "${CLEANUP_FILES[@]}"; return 0; }
+trap cleanup EXIT
+
 OS="$(uname -s)"
 
 # Auto mode is the DEFAULT: run start-to-finish with no human in the loop. Claude
@@ -72,7 +89,7 @@ AUTO="${AUTO:-1}"
 # Which task to run. A task may be given in advance - the TASK env var or the first
 # non-flag argument - otherwise we ask for it interactively below (see choose_task),
 # falling back to this default when there's no one to ask. The prompt for a task
-# lives in Tasks/<TASK>.md (see load_task).
+# (and, for YAML tasks, the repo + checkout dir) is loaded later by resolve_task.
 TASK_GIVEN=0
 [ -n "${TASK:-}" ] && TASK_GIVEN=1
 TASK="${TASK:-Golf}"
@@ -85,9 +102,11 @@ for arg in "$@"; do
   esac
 done
 
-# The upstream project this harness forks, builds, and opens PRs against. Always
-# Physlib - this harness is Physlib-specific.
-UPSTREAM_REPO="leanprover-community/physlib"
+# The upstream repo to fork/build/PR-against, the local checkout folder, and the
+# task prompt are all decided by resolve_task (below) once the task is known:
+#   * Markdown task -> Physlib, in ./physlib-auto.
+#   * YAML task     -> the repo/dir/prompt declared in the task file.
+# They're left unset here on purpose; nothing references them before resolve_task.
 
 # Politeness cap: refuse to run when more than this many automated PRs (open PRs
 # whose title starts with "auto-", the prefix every task here uses) already exist
@@ -128,7 +147,7 @@ claude_signed_in() {
 }
 
 # This script's name and its canonical GitHub location, plus the base URL for the
-# task files - used by the update check and by load_task's GitHub fallback.
+# task files - used by the update check and by resolve_task's GitHub fallback.
 REPO_RAW_BASE="https://raw.githubusercontent.com/jstoobysmith/PhyslibAITools/main"
 SELF_NAME="physlib-auto-task.sh"
 SELF_RAW_URL="$REPO_RAW_BASE/Scripts/$SELF_NAME"
@@ -161,25 +180,78 @@ check_for_updates() {
   fi
 }
 
-# Load the prompt for task "$1" and print it to stdout. Prefers a local
-# Tasks/<Task>.md (next to this script, or under the current directory); otherwise
-# fetches it from GitHub. Accepts the name as given or with a capitalised first
-# letter (so "golf" and "Golf" both resolve to Tasks/Golf.md). Returns non-zero if
-# the task can't be found anywhere.
-load_task() {
-  local name="$1" cap stem f body
+# --- YAML task helpers ------------------------------------------------------
+# A YAML task file carries three fields (see the schema note below):
+#   repo: user/repo            # upstream repo to fork, build, and PR against
+#   dir:  some-auto            # local checkout folder this script owns
+#   prompt: |                  # the task prompt (a literal block scalar)
+#     ...indented prompt...
+# These two readers handle exactly that shape - not arbitrary YAML.
+
+# Print the trimmed value of a top-level "key: value" scalar from YAML file $2
+# (surrounding quotes removed), or nothing if the key is absent. Used for repo/dir.
+yaml_scalar() {
+  local key="$1" file="$2" line
+  line="$(grep -m1 -E "^${key}:" "$file" 2>/dev/null)" || return 0
+  line="${line#"$key":}"
+  line="${line#"${line%%[![:space:]]*}"}"   # strip leading whitespace
+  line="${line%"${line##*[![:space:]]}"}"   # strip trailing whitespace
+  case "$line" in                            # strip one pair of surrounding quotes
+    \"*\") line="${line#\"}"; line="${line%\"}" ;;
+    \'*\') line="${line#\'}"; line="${line%\'}" ;;
+  esac
+  printf '%s' "$line"
+}
+
+# Print the literal block-scalar value of "key: |" (or "key: >") from YAML file $2:
+# every following line indented under it, dedented by the block's own indentation,
+# stopping at the next unindented (top-level) line. Used for the multi-line prompt.
+yaml_block() {
+  local key="$1" file="$2"
+  awk -v k="$key" '
+    BEGIN { inblock = 0; indent = -1 }
+    inblock == 0 { if ($0 ~ ("^" k ":[ \t]*[|>]")) inblock = 1; next }
+    {
+      if ($0 ~ /^[ \t]*$/) { print ""; next }     # blank line -> keep, do not end
+      match($0, /^[ \t]*/); cur = RLENGTH
+      if (indent < 0) indent = cur                 # first content line sets indent
+      if (cur < indent) exit                       # dedent -> block has ended
+      print substr($0, indent + 1)
+    }
+  ' "$file"
+}
+
+# Locate the task file for "$1" and record its path (TASK_FILE) and format
+# (TASK_FORMAT = yaml|md). Prefers a YAML task (Tasks/<Task>.yaml or .yml) over the
+# classic Markdown one (Tasks/<Task>.md); for each it looks next to this script and
+# under the current directory, then falls back to fetching from GitHub into a temp
+# file. Accepts the name as given or with a capitalised first letter (so "golf" and
+# "Golf" both resolve). Returns non-zero if the task can't be found anywhere.
+TASK_FILE=""
+TASK_FORMAT=""
+resolve_task() {
+  local name="$1" cap stem ext d f body tmp
   cap="$(printf '%s' "$name" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
-  for stem in "$name" "$cap"; do
-    for f in \
-      "${SCRIPT_DIR:+$SCRIPT_DIR/../Tasks/$stem.md}" \
-      "./Tasks/$stem.md" \
-      "${SCRIPT_DIR:+$SCRIPT_DIR/Tasks/$stem.md}"; do
-      [ -n "$f" ] && [ -f "$f" ] && { cat "$f"; return 0; }
+  for ext in yaml yml md; do
+    for stem in "$name" "$cap"; do
+      for d in "${SCRIPT_DIR:+$SCRIPT_DIR/../Tasks}" "./Tasks" "${SCRIPT_DIR:+$SCRIPT_DIR/Tasks}"; do
+        f="${d:+$d/$stem.$ext}"
+        if [ -n "$f" ] && [ -f "$f" ]; then
+          TASK_FILE="$f"; [ "$ext" = md ] && TASK_FORMAT=md || TASK_FORMAT=yaml
+          return 0
+        fi
+      done
     done
   done
-  for stem in "$name" "$cap"; do
-    body="$(curl -fsSL --max-time 15 "$TASKS_RAW_BASE/$stem.md" 2>/dev/null || true)"
-    [ -n "$body" ] && { printf '%s' "$body"; return 0; }
+  for ext in yaml yml md; do
+    for stem in "$name" "$cap"; do
+      body="$(curl -fsSL --max-time 15 "$TASKS_RAW_BASE/$stem.$ext" 2>/dev/null || true)"
+      if [ -n "$body" ]; then
+        tmp="$(mktemp)"; printf '%s' "$body" >"$tmp"; CLEANUP_FILES+=("$tmp")
+        TASK_FILE="$tmp"; [ "$ext" = md ] && TASK_FORMAT=md || TASK_FORMAT=yaml
+        return 0
+      fi
+    done
   done
   return 1
 }
@@ -189,15 +261,16 @@ load_task() {
 # is no local Tasks/ (e.g. piped from curl) it just asks for a name. A blank answer
 # keeps the current default ("$TASK").
 choose_task() {
-  local tasks_dir="" d f t reply
+  local tasks_dir="" d f base reply
   local names=()
   for d in "${SCRIPT_DIR:+$SCRIPT_DIR/../Tasks}" "./Tasks" "${SCRIPT_DIR:+$SCRIPT_DIR/Tasks}"; do
     [ -n "$d" ] && [ -d "$d" ] && { tasks_dir="$d"; break; }
   done
   if [ -n "$tasks_dir" ]; then
-    for f in "$tasks_dir"/*.md; do
+    for f in "$tasks_dir"/*.md "$tasks_dir"/*.yaml "$tasks_dir"/*.yml; do
       [ -e "$f" ] || continue
-      names+=("$(basename "$f" .md)")
+      base="$(basename "$f")"
+      names+=("${base%.*}")
     done
   fi
   if [ "${#names[@]}" -gt 0 ]; then
@@ -274,9 +347,10 @@ ${C_CYAN}Tips${C_RESET}
     and Claude Code already signed in. Use ${C_BOLD}--manual${C_RESET} (or ${C_BOLD}AUTO=0${C_RESET}) to review
     and confirm each step yourself.
   ${C_GREEN}*${C_RESET} ${C_BOLD}Pick a task${C_RESET} with an argument or ${C_BOLD}TASK=Golf${C_RESET} (default ${C_BOLD}Golf${C_RESET});
-    in manual mode you're asked. Tasks live in ${C_BOLD}Tasks/<Name>.md${C_RESET}.
-  ${C_GREEN}*${C_RESET} ${C_BOLD}Reuses your checkout${C_RESET}: if a ${C_BOLD}./physlib-auto${C_RESET} folder already
-    exists in the current directory, it's reused instead of cloning again.
+    in manual mode you're asked. Tasks live in ${C_BOLD}Tasks/<Name>.md${C_RESET} (Physlib) or
+    ${C_BOLD}Tasks/<Name>.yaml${C_RESET} (which names its own repo + checkout folder).
+  ${C_GREEN}*${C_RESET} ${C_BOLD}Reuses your checkout${C_RESET}: if the task's working folder (e.g.
+    ${C_BOLD}./physlib-auto${C_RESET}) already exists, it's reused instead of cloning again.
   ${C_GREEN}*${C_RESET} ${C_BOLD}Good citizen${C_RESET}: won't run if more than ${C_BOLD}$MAX_OPEN_AUTO_PRS${C_RESET} automated PRs
     are already open upstream (override with ${C_BOLD}MAX_OPEN_AUTO_PRS${C_RESET}).
   ${C_DIM}* First build can take 10+ minutes. NO_COLOR=1 disables colour;${C_RESET}
@@ -299,6 +373,33 @@ if [ "$TASK_GIVEN" -eq 0 ]; then
 fi
 # Lower-cased task name, used for the work-branch name and the PR title prefix.
 TASK_LC="$(printf '%s' "$TASK" | tr '[:upper:]' '[:lower:]')"
+
+# Resolve the task to its prompt, the repo to fork, and the local checkout folder.
+# Markdown tasks are the Physlib default (leanprover-community/physlib in
+# physlib-auto); YAML tasks declare their own repo/dir/prompt, all three required.
+# Done up front - before the preflight and the slow fork/build - so the rest of the
+# run knows exactly which repo and folder it's operating on.
+resolve_task "$TASK" || die "Couldn't find task '$TASK' - looked for a local \
+Tasks/$TASK.{yaml,yml,md} (and the capitalised name), then the same on GitHub under \
+$TASKS_RAW_BASE. Check the task name (see the Tasks/ directory)."
+
+if [ "$TASK_FORMAT" = "yaml" ]; then
+  UPSTREAM_REPO="$(yaml_scalar repo "$TASK_FILE")"
+  WORK_DIR="$(yaml_scalar dir "$TASK_FILE")"
+  PROMPT="$(yaml_block prompt "$TASK_FILE")"
+  [ -n "$UPSTREAM_REPO" ] || die "YAML task '$TASK' is missing the required 'repo:' \
+field (e.g. repo: ImperialCollegeLondon/FLT)."
+  [ -n "$WORK_DIR" ] || die "YAML task '$TASK' is missing the required 'dir:' field \
+(the local checkout folder, e.g. dir: flt-auto)."
+  [ -n "$PROMPT" ] || die "YAML task '$TASK' is missing the required 'prompt:' block \
+('prompt: |' followed by the indented task text)."
+else
+  UPSTREAM_REPO="leanprover-community/physlib"
+  WORK_DIR="physlib-auto"
+  PROMPT="$(cat "$TASK_FILE")"
+fi
+# Human-friendly project name (the repo's basename), used in build/log messages.
+PROJECT_NAME="${UPSTREAM_REPO##*/}"
 
 # --- 0. Preflight: report the status of every prerequisite ------------------
 
@@ -332,11 +433,11 @@ else
   check info "Claude Code: sign-in pending (claude not installed yet)"
 fi
 
-# Physlib checkout / working folder
-if [ -d physlib-auto ]; then
-  check ok "./physlib-auto folder (reusing existing checkout)"
+# Working checkout folder for this task ($WORK_DIR)
+if [ -d "$WORK_DIR" ]; then
+  check ok "./$WORK_DIR folder (reusing existing checkout)"
 else
-  check info "./physlib-auto folder not found - that's OK, we'll create one"
+  check info "./$WORK_DIR folder not found - that's OK, we'll create one"
 fi
 
 printf '\n'
@@ -436,35 +537,41 @@ fi
 
 # --- 3. Fork + clone --------------------------------------------------------
  
-# Always work in a dedicated physlib-auto checkout that this script owns - reuse it
+# Always work in a dedicated checkout that this script owns ($WORK_DIR) - reuse it
 # if it's already here, otherwise fork + clone it. (We never operate on whatever
 # directory you happen to launch from, so a stray lakefile can't redirect the run.)
-if [ -d physlib-auto ]; then
-  log "Reusing existing physlib-auto checkout (no re-clone)."
-  cd physlib-auto
+if [ -d "$WORK_DIR" ]; then
+  log "Reusing existing $WORK_DIR checkout (no re-clone)."
+  cd "$WORK_DIR"
 else
-  log "Forking and cloning Physlib into physlib-auto..."
-  # Pin the clone directory to "physlib-auto" via a git-clone arg (after --), so
-  # we don't depend on what the fork happens to be named on your account.
-  gh repo fork "$UPSTREAM_REPO" --clone -- physlib-auto
-  cd physlib-auto
+  log "Forking and cloning $UPSTREAM_REPO into $WORK_DIR..."
+  # Pin the clone directory via a git-clone arg (after --), so we don't depend on
+  # what the fork happens to be named on your account.
+  gh repo fork "$UPSTREAM_REPO" --clone -- "$WORK_DIR"
+  cd "$WORK_DIR"
 fi
 CHECKOUT_DIR="$(pwd)"
 
-# Start a fresh working branch off upstream master, so edits never land on master,
-# don't stack on a leftover branch from a previous run in a reused checkout, and
-# start from the latest upstream rather than a possibly-stale fork.
-# (gh repo fork --clone adds an "upstream" remote pointing at leanprover-community.)
-BASE="master"
+# Find the upstream's default branch (master, main, ...) so this works for any repo,
+# not just ones that use "master". Fall back to "master" if the query fails.
+DEFAULT_BRANCH="$(gh repo view "$UPSTREAM_REPO" --json defaultBranchRef \
+  --jq '.defaultBranchRef.name' 2>/dev/null || true)"
+[ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH="master"
+
+# Start a fresh working branch off the upstream default branch, so edits never land
+# on it, don't stack on a leftover branch from a previous run in a reused checkout,
+# and start from the latest upstream rather than a possibly-stale fork.
+# (gh repo fork --clone adds an "upstream" remote pointing at the source repo.)
+BASE="$DEFAULT_BRANCH"
 if git remote get-url upstream >/dev/null 2>&1; then
-  log "Fetching upstream master..."
-  if git fetch upstream master 2>/dev/null; then
-    BASE="upstream/master"
+  log "Fetching upstream $DEFAULT_BRANCH..."
+  if git fetch upstream "$DEFAULT_BRANCH" 2>/dev/null; then
+    BASE="upstream/$DEFAULT_BRANCH"
   else
-    warn "Couldn't fetch upstream; basing the branch off local master."
+    warn "Couldn't fetch upstream; basing the branch off local $DEFAULT_BRANCH."
   fi
 else
-  warn "No 'upstream' remote; basing the branch off local master."
+  warn "No 'upstream' remote; basing the branch off local $DEFAULT_BRANCH."
 fi
 BRANCH="auto-${TASK_LC}-$(date +%Y%m%d-%H%M%S)"
 log "Creating work branch $BRANCH off $BASE..."
@@ -493,15 +600,15 @@ build_die() {
   die "$1
 
 This usually means the existing checkout or its Mathlib cache is in a bad state.
-Delete the physlib-auto checkout and re-run this script for a clean clone + build:
+Delete the checkout and re-run this script for a clean clone + build:
   rm -rf \"$CHECKOUT_DIR\""
 }
 
 log "Fetching the Mathlib cache..."
 lake exe cache get || build_die "Failed to fetch the Mathlib cache (lake exe cache get)."
 log "Mathlib cache fetched."
-log "Building Physlib (the first build can take 10+ minutes)..."
-lake build || build_die "Failed to build Physlib (lake build)."
+log "Building $PROJECT_NAME (the first build can take 10+ minutes)..."
+lake build || build_die "Failed to build $PROJECT_NAME (lake build)."
 log "Build complete."
  
 # --- 5. Register the Lean LSP MCP server -----------------------------------
@@ -514,16 +621,14 @@ claude mcp add lean-lsp -- uvx lean-lsp-mcp 2>/dev/null \
 # --- 6. Hand off to Claude --------------------------------------------------
  
 # Temp files (outside the repo, so they never get committed) where Claude leaves
-# the PR title and description for the script to use in step 7.
-PR_TITLE_FILE="$(mktemp)"
-PR_BODY_FILE="$(mktemp)"
-trap 'rm -f "$PR_TITLE_FILE" "$PR_BODY_FILE"' EXIT
+# the PR title and description for the script to use in step 7. Registered with the
+# cleanup trap set up at the top so they're removed on exit.
+PR_TITLE_FILE="$(mktemp)"; CLEANUP_FILES+=("$PR_TITLE_FILE")
+PR_BODY_FILE="$(mktemp)";  CLEANUP_FILES+=("$PR_BODY_FILE")
 
-# Load the task-specific prompt (Tasks/<TASK>.md, local or from GitHub).
-log "Loading task '$TASK'..."
-PROMPT="$(load_task "$TASK")" \
-  || die "Couldn't find task '$TASK' - looked for a local Tasks/$TASK.md and \
-$TASKS_RAW_BASE/$TASK.md. Check the task name (see the Tasks/ directory)."
+# The task prompt ($PROMPT) was already resolved up front by resolve_task, along
+# with the repo and checkout dir; nothing more to load here.
+log "Running task '$TASK' on $UPSTREAM_REPO..."
 
 # Standard PR-text handoff - identical for every task, so it lives here rather than
 # in the task file. Claude writes the PR title and body to these temp files once the
@@ -616,7 +721,7 @@ git push -u origin "$BRANCH"
 
 ME="$(gh api user --jq .login)"
 log "Opening the pull request..."
-gh pr create --repo "$UPSTREAM_REPO" --base master \
+gh pr create --repo "$UPSTREAM_REPO" --base "$DEFAULT_BRANCH" \
   --head "${ME}:${BRANCH}" --title "$TITLE" --body-file "$PR_BODY_FILE"
 log "Done - pull request opened."
  
