@@ -221,7 +221,7 @@ choose_task() {
 # Weighted random task picker, used in auto mode when no task was given. Weights are
 # out of 100 and should sum to 100; edit the table to change the mix. Each entry is
 # Name:weight, and a task is chosen with probability weight/100.
-TASK_WEIGHTS="Golf:60 LintQI:20 ImportMinimizer:20"
+TASK_WEIGHTS="Golf:34 LintQI:33 ImportMinimizer:33"
 pick_weighted_task() {
   local r=$(( RANDOM % 100 )) acc=0 entry name="" weight
   for entry in $TASK_WEIGHTS; do
