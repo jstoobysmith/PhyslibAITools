@@ -1,0 +1,95 @@
+repo: leanprover-community/physlib
+dir: physlib-auto
+
+# Asked before Claude runs; the answer is prepended to the prompt as the TODO item
+# to add.
+input_questions:
+  - "What TODO item would you like to add to the Physlib repository? This could be a new lemma, definition, or other task such as a refactoring."
+  - "What is your name (for the copyright header), if needed?"
+
+# Asked after Claude finishes, with its diff shown, to review the placement.
+challenge_questions:
+  - "Does the TODO item look correctly placed in the library and an accurate reflection of the input?"
+
+prompt: |
+  You're working in the Physlib repository (leanprover-community/physlib, a Lean 4
+  physics library). Your task is to record EXACTLY ONE `TODO` item - based on the
+  input above - in the right place in the library, and nothing more. You are NOT
+  proving or implementing the TODO; you are only recording it well.
+
+  In Physlib a TODO is a real command, not a comment: it requires the import
+  `public import Physlib.Meta.TODO.Basic`, and has the structure
+
+      TODO "the text of the TODO item, as a string literal."
+
+  The build collects these via the TODO environment extension, so the command must
+  elaborate and the project must build. The command can go ANYWHERE inside the
+  file's `@[expose] public section` - put it wherever it fits best, next to the
+  declarations or section it concerns (see, for example,
+  Physlib/Relativity/CliffordAlgebra.lean). It does not have to be at the top.
+
+  Do ONLY the following:
+
+  1. First, check it isn't already recorded. Search the existing TODOs for one that
+     already points in the same direction - for example
+       grep -rn 'TODO "' Physlib. 
+     If an equivalent TODO already exists, do NOT add a duplicate: make no
+     changes at all, and tell me which file and line already records it and why it
+     matches the input. Only continue with the steps below if nothing equivalent is
+     already there.
+
+  2. Decide where the TODO belongs, library-first. Find the most specific existing
+     file whose subject the TODO concerns, and the right spot within that file. Prefer an
+     existing file; create a new file or directory ONLY if no existing file is a
+     reasonable home, or a new file is better suited.
+
+  3. Write a clear, well-fitted TODO string. Do NOT just copy the input verbatim:
+     reword it so it fits the project and reads clearly to a future contributor -
+     precise, self-contained, using Physlib/Mathlib terminology and naming
+     conventions, and referring to the relevant definitions where that helps. Keep
+     it concise and faithful to the intent of the input. Do not invent extra TODOs.
+
+  4. Make the edit minimal and idiomatic:
+     - If the file already exists, add the single `TODO "..."` command at the
+       appropriate place in the public section, and change nothing else. Only add
+       `public import Physlib.Meta.TODO.Basic` if it is genuinely needed - that is,
+       if the `TODO` command does not already elaborate. It is often available
+       already through a transitive import, so do NOT add the import if the file
+       builds with the `TODO` command without it; add it only if the build
+       complains that `TODO` is unknown.
+     - If the file is new, give it the standard Physlib header and structure,
+       modelled on a small existing file: a copyright block, the `module` line, the
+       `public import`s it needs (including `public import Physlib.Meta.TODO.Basic`),
+       a `/-! # ... -/` module docstring, and `@[expose] public section`. In the
+       copyright block, use the name I gave in the input above as the author:
+         Copyright (c) <current year> <name>. All rights reserved.
+         Released under Apache 2.0 license as described in the file LICENSE.
+         Authors: <name>
+
+  5. If you created a new file, add a `public import` for it to `Physlib.lean`,
+     keeping that file's import list sorted. (Do not touch PhyslibAlpha.)
+
+  6. Verify the build AND the linters. First build the project (`lake build`,
+     fetching the cache first with `lake exe cache get` if needed) and confirm it
+     succeeds with the new TODO in place - no `sorry`, no new axioms, no errors or
+     warnings introduced, and the TODO command elaborating cleanly. Then run the two
+     required linters and make sure they are clean for the file you touched:
+       - `lake exe runPhyslibLinters`  (the Lean/Physlib linters)
+       - `./scripts/lint-style.sh`     (the text/style linter)
+     Iterate until the build succeeds and neither linter complains about your change
+     (a new file in particular must satisfy the module-docstring, copyright, and
+     import-style linters).
+
+  Do NOT prove or implement anything the TODO describes, do not edit unrelated
+  declarations, and do not commit, push, or open a pull request yourself - the
+  script does that after you exit. When you're done, tell me the exact TODO text you
+  added, which file it went in (and whether you created it), why that is the right
+  home, and paste the final build and linter output. If instead you found the item
+  was already recorded, say so and leave the repository unchanged.
+
+  For the PR description (which I will mention below where to put it), I want you to do the following: 
+  - Include the original user input (at the beginning of this prompt) 
+  - Indicate that the TODO item was human written, but it was included in the PR by Claude, 
+    and that it was placed in the right file and section of the library.
+  Make it concise, but make it easy for a reviewer to understand what was done and why.
+  
