@@ -1,0 +1,55 @@
+# YAML task: golf a proof in the FLT repository.
+#
+# Unlike a Markdown task (which always targets Physlib), a YAML task names the repo
+# to fork and the local checkout folder, so the same harness can run against any
+# Lean repo. Required fields: repo, dir, prompt.
+repo: ImperialCollegeLondon/FLT
+dir: flt-auto
+prompt: |
+  # Task: Golf a proof
+
+  You're working in the FLT repository (ImperialCollegeLondon/FLT, a Lean 4
+  project formalising Fermat's Last Theorem). Your task is to "golf" (improve)
+  EXACTLY ONE long proof. If Lean LSP tools (from lean-lsp-mcp) are available, use
+  them to read goal states, diagnostics, and hover info rather than guessing.
+
+  1. Choose a proof to golf - but FIRST, before you claim anything, check it is not
+     already being worked on. Run
+       gh pr list --repo ImperialCollegeLondon/FLT --state open --limit 1000
+     and inspect likely candidates' changed files (gh pr view <n> --json files, or
+     gh pr diff <n>). Do NOT pick a theorem or lemma that an open PR is already
+     golfing (or whose file an open PR is already editing); if gh cannot reach the
+     API, say so and carry on. Tell me which open PRs you saw, then claim your proof:
+     search the Lean source (e.g. under FLT/ (where
+     there might be more golfing opportunities)) for a single `theorem` or `lemma`
+     whose proof is long - many tactic lines, lots of repetition, or obviously
+     heavier than it needs to be - and that no open PR is already touching. If the
+     proof you'd naturally pick is already taken, move on to another long proof.
+     This whole run is about that one proof and nothing else: you change one proof
+     and one proof only, and you never start or edit a second proof or file.
+  2. Golf that one proof, improving it along three axes:
+       i)   length    - fewer lines / less repetition / more idiomatic tactics
+       ii)  speed      - faster to elaborate (avoid expensive tactics like heavy
+                         `simp` calls or `omega`/`decide` where a direct term works;
+                         prefer targeted lemmas; you can sanity-check with
+                         `set_option profiler true` or `count_heartbeats`)
+       iii) structure  - clearer, more readable, following Mathlib conventions
+                         (https://leanprover-community.github.io/contribute/naming.html)
+  3. Do NOT change any theorem, lemma, or definition STATEMENT - the signature
+     (name, binders, type) of the thing you are proving must stay byte-for-byte
+     identical. You are only allowed to rewrite the proof term/tactic block. Do not
+     add, remove, or restate any theorem, lemma, or definition.
+  4. You should change ONLY that one proof. Do not edit any other proof, any other
+     declaration, or any other file. Do not touch imports, docstrings, or the
+     exemption list.
+  5. Verify: build the project (`lake build`, or the relevant `lake build FLT`
+     target) and confirm it succeeds with your golfed proof in place. The proof
+     must still close all goals with no `sorry`, no new axioms, and no errors or
+     warnings introduced.
+
+  Iterate until the build succeeds with the golfed proof - that is the bar for this
+  PR. If you genuinely can't improve the proof while keeping the build green, stop
+  and tell me exactly what's blocking - don't leave the proof half-edited or
+  broken. Do NOT commit, push, or open a pull request yourself - the script does
+  that after you exit. When you're done, tell me which theorem/lemma you golfed (and
+  in which file), show the before/after proof, and paste the final build output.
