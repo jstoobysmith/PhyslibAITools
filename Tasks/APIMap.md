@@ -140,4 +140,4 @@ To produce the code snippets from Physlib you can use e.g. https://github.com/le
 
 The aim here is to make it as easy as possible for a reviewer to check that you have not made anything up, 
 by providing them with a tick-box exercise of comparing what the yaml file says and what already exists.
-Because of this every claim must be justfied. 
+Because of this every claim must be justfied. The PR description should mirror that of: https://github.com/leanprover-community/Physlib/pull/1268
