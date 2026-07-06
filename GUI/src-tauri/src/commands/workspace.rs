@@ -246,9 +246,20 @@ pub async fn ensure_cloned(app: AppHandle, workspace_dir: &Path) -> Result<(), S
     let dir_str = workspace_dir.to_string_lossy().into_owned();
     let status = process::run_streamed_to_completion(
         app,
-        "workspace:clone",
+        // Must be "setup:clone" (not "workspace:clone") so the onboarding
+        // EnvSetupStep, which subscribes to `setup:<id>:line`, actually shows
+        // this step's git/gh output - every other setup step already uses the
+        // `setup:*` prefix. With the old name the clone step streamed to an
+        // event nobody listened to, so a failure (e.g. "no space left on
+        // device") surfaced only as the generic error below, with no log.
+        "setup:clone",
         "gh",
-        &["repo", "fork", UPSTREAM_REPO, "--clone", "--remote", "--", &dir_str],
+        // No `--remote`: gh rejects it when a repository argument is given
+        // ("the --remote flag is unsupported when a repository argument is
+        // provided"), and it's redundant here anyway - `--clone` already adds
+        // an `upstream` remote pointing at the source repo. This matches the
+        // bash harness exactly (`gh repo fork <repo> --clone -- <dir>`).
+        &["repo", "fork", UPSTREAM_REPO, "--clone", "--", &dir_str],
         None,
     )
     .await

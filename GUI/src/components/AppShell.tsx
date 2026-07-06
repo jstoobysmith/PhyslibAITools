@@ -24,7 +24,17 @@ function ThemeToggle() {
  * useful for it to go) opens the same account screen onboarding used, so
  * users can sign out and switch their Claude/GitHub account on their own
  * without reinstalling or hunting for credential files. */
-export function AppShell({ children, onSettingsClick }: { children: ReactNode; onSettingsClick?: () => void }) {
+export function AppShell({
+  children,
+  onSettingsClick,
+  banner,
+}: {
+  children: ReactNode;
+  onSettingsClick?: () => void;
+  // Optional bar rendered directly under the header, on top of every screen -
+  // used for the persistent "task in progress" banner.
+  banner?: ReactNode;
+}) {
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <header
@@ -82,6 +92,7 @@ export function AppShell({ children, onSettingsClick }: { children: ReactNode; o
           <ThemeToggle />
         </div>
       </header>
+      {banner}
       <main
         style={{
           flex: 1,

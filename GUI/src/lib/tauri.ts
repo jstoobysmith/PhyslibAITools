@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open } from "@tauri-apps/plugin-dialog";
 import type {
   AppConfig,
   PrResult,
@@ -18,6 +19,13 @@ export const detectTools = () => invoke<ToolStatus>("detect_tools");
 export const loadConfig = () => invoke<AppConfig>("load_config");
 export const saveConfig = (config: AppConfig) => invoke<void>("save_config", { config });
 export const installedWorkspaceDir = () => invoke<string>("installed_workspace_dir");
+
+/** Opens a native folder picker so the user can choose where Physlib is
+ * cloned. Returns the selected directory, or null if they cancelled. */
+export const pickDirectory = (defaultPath?: string) =>
+  open({ directory: true, multiple: false, title: "Choose a folder to keep Physlib in", defaultPath }) as Promise<
+    string | null
+  >;
 
 export const claudeStatus = () => invoke<boolean>("claude_status");
 export const startClaudeLogin = () => invoke<void>("start_claude_login");

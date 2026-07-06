@@ -58,6 +58,7 @@ async fn detect_tools() -> ToolStatus {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(commands::auth_claude::ClaudeLoginState::default())
         .invoke_handler(tauri::generate_handler![
             current_platform,

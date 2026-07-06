@@ -19,12 +19,16 @@ export function TaskRunView({
   workspaceDir,
   maxOpenAutoPrs,
   claudeOauthToken,
+  onMinimize,
   onExit,
 }: {
   task: ParsedTask;
   workspaceDir: string;
   maxOpenAutoPrs: number;
   claudeOauthToken: string | null;
+  // Leave the run going and return to the list (the run stays mounted).
+  onMinimize: () => void;
+  // The run is over (or abandoned) - discard it and return to the list.
   onExit: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>(task.inputQuestions.length > 0 ? "questions" : "starting");
@@ -91,6 +95,10 @@ export function TaskRunView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, listenersReady]);
 
+  // Once the run has reached one of these, there's nothing left running to
+  // return to, so leaving discards it rather than minimizing.
+  const isTerminal = phase === "success" || phase === "error" || phase === "not-finished";
+
   const confirmPr = async (finalBody: string) => {
     if (!branch || !finished?.prTitle) return;
     setBusy(true);
@@ -110,9 +118,18 @@ export function TaskRunView({
     <div className="page" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h2 className="page-title">{task.name}</h2>
-        <Button variant="ghost" size="sm" onClick={onExit}>
-          ← Back to tasks
-        </Button>
+        {isTerminal ? (
+          <Button variant="ghost" size="sm" onClick={onExit}>
+            ← Back to tasks
+          </Button>
+        ) : (
+          // Non-terminal: leave the run mounted and return to the list, where a
+          // banner brings you straight back here. While Claude is actively
+          // working we call that out so it's clear the run isn't cancelled.
+          <Button variant="ghost" size="sm" onClick={onMinimize}>
+            {phase === "starting" || phase === "running" ? "← Back to tasks (keeps running)" : "← Back to tasks"}
+          </Button>
+        )}
       </div>
 
       <Card>

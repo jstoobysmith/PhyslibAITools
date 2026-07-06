@@ -186,6 +186,10 @@ export function SetupDashboard({
           ) : workspaceDir ? (
             <EnvSetupStep
               workspaceDir={workspaceDir}
+              onWorkspaceDirChange={(dir) => {
+                setWorkspaceDir(dir);
+                persist({ workspaceDir: dir });
+              }}
               onDone={() => {
                 persist({ onboarding: { envDone: true } });
                 refreshHealth(workspaceDir);

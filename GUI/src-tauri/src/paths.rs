@@ -110,8 +110,37 @@ pub fn augmented_path_env() -> std::ffi::OsString {
 /// bash harness's own `claude_signed_in()` check (Scripts/physlib-auto-task.sh).
 pub fn claude_credentials_exist() -> bool {
     let Some(home) = home_dir() else { return false };
-    home.join(".claude").join(".credentials.json").exists()
+    if home.join(".claude").join(".credentials.json").exists()
         || home.join(".config").join("claude").join(".credentials.json").exists()
+    {
+        return true;
+    }
+    // On macOS, Claude Code stores a subscription login in the login Keychain
+    // rather than a `.credentials.json` file, so the file checks above miss it
+    // entirely. The bash harness's `claude_signed_in()` handles this with the
+    // same `security` lookup; mirror it here so an existing login done outside
+    // this app (e.g. `claude` / `/login` in a terminal) is recognized.
+    claude_keychain_login_exists()
+}
+
+/// macOS-only: true if Claude Code's credentials are present in the login
+/// Keychain. A non-zero exit (item not found) or any spawn failure is treated
+/// as "not signed in", so this is safe to call unconditionally.
+fn claude_keychain_login_exists() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("security")
+            .args(["find-generic-password", "-s", "Claude Code-credentials"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
 }
 
 /// Removes Claude Code's own credentials file, if present, so a fresh
