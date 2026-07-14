@@ -35,10 +35,22 @@ fn emit_step(app: &AppHandle, id: &'static str, label: &'static str, status: &'s
 /// the one place we invoke a shell at all: PowerShell on Windows (native,
 /// not bash) and `sh` on macOS/Linux (the OS's own default shell, always
 /// present) - narrowly scoped to running a single vendor-provided installer
-/// command, not to our own orchestration.
+/// command, not to our own orchestration. Windows uses a process-scoped
+/// execution-policy bypass so these official scripts work on the default
+/// Restricted policy without changing the user's persistent policy.
 async fn run_installer_line(app: AppHandle, event: &str, line: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
-    let (program, args): (&str, Vec<&str>) = ("powershell.exe", vec!["-NoProfile", "-NonInteractive", "-Command", line]);
+    let (program, args): (&str, Vec<&str>) = (
+        "powershell.exe",
+        vec![
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            line,
+        ],
+    );
     #[cfg(not(target_os = "windows"))]
     let (program, args): (&str, Vec<&str>) = ("sh", vec!["-c", line]);
 
@@ -86,6 +98,120 @@ async fn winget_install(app: AppHandle, event: &str, package_id: &str) -> Result
     }
 }
 
+/// Ensures `gh` is available before the GitHub onboarding step tries to log
+/// in. GitHub login intentionally comes before the full workspace setup, so
+/// installing `gh` only from `install_prereqs` creates a circular dependency:
+/// login needs `gh`, while the step that installs `gh` is gated on login.
+pub async fn ensure_github_cli(app: AppHandle) -> Result<(), String> {
+    if paths::has_tool("gh") {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    winget_install(app.clone(), "github-cli-install", "GitHub.cli").await?;
+
+    #[cfg(target_os = "macos")]
+    {
+        if paths::has_tool("brew") {
+            run_installer_line(app.clone(), "github-cli-install", "brew install gh").await?;
+        } else {
+            return Err(
+                "GitHub CLI is required. Install Homebrew from https://brew.sh or install gh from https://cli.github.com/, then try again."
+                    .into(),
+            );
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if paths::has_tool("apt-get") {
+            run_installer_line(
+                app.clone(),
+                "github-cli-install",
+                "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+                 sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+                 echo \"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null && \
+                 sudo apt-get update -y && sudo apt-get install -y gh",
+            )
+            .await?;
+        } else {
+            return Err(
+                "GitHub CLI is required. Install it from https://cli.github.com/, then try again."
+                    .into(),
+            );
+        }
+    }
+
+    if paths::has_tool("gh") {
+        Ok(())
+    } else {
+        Err(
+            "GitHub CLI installation finished, but `gh` still couldn't be found. Restart the app and try again."
+                .into(),
+        )
+    }
+}
+
+/// Ensures Claude Code is installed before either the automatic Windows login
+/// or the visible-terminal fallback tries to run `claude setup-token`. Like
+/// GitHub CLI, Claude Code was originally installed only by the later
+/// workspace step, which is unreachable until account login has completed.
+pub async fn ensure_claude_code(app: AppHandle) -> Result<(), String> {
+    if paths::has_tool("claude") {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    let native = run_installer_line(
+        app.clone(),
+        "claude-cli-install",
+        "irm https://claude.ai/install.ps1 | iex",
+    )
+    .await;
+
+    #[cfg(not(target_os = "windows"))]
+    let native = run_installer_line(
+        app.clone(),
+        "claude-cli-install",
+        "curl -fsSL https://claude.ai/install.sh | sh",
+    )
+    .await;
+
+    if native.is_err() {
+        if paths::has_tool("npm") {
+            let status = process::run_streamed_to_completion(
+                app.clone(),
+                "claude-cli-install",
+                "npm",
+                &["install", "-g", "@anthropic-ai/claude-code"],
+                None,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            if !status.success() {
+                return Err(
+                    "Failed to install Claude Code with both the native installer and npm."
+                        .into(),
+                );
+            }
+        } else {
+            return Err(format!(
+                "Claude Code's native installer failed ({}) and npm isn't available as a fallback.",
+                native.unwrap_err()
+            ));
+        }
+    }
+
+    if paths::has_tool("claude") {
+        Ok(())
+    } else {
+        Err(
+            "Claude Code installation finished, but `claude` still couldn't be found. Restart the app and try again."
+                .into(),
+        )
+    }
+}
+
 #[cfg(target_os = "windows")]
 async fn install_prereqs(app: AppHandle) -> Result<(), String> {
     // git (winget's Git.Git is Git for Windows, which bundles bash.exe -
@@ -119,7 +245,7 @@ async fn install_prereqs(app: AppHandle) -> Result<(), String> {
     // GitHub CLI (may already be present if GitHub login ran first).
     if !paths::has_tool("gh") {
         emit_step(&app, "gh", "Install the GitHub CLI", "running", None);
-        winget_install(app.clone(), "setup:gh", "GitHub.cli").await?;
+        ensure_github_cli(app.clone()).await?;
     } else {
         emit_step(&app, "gh", "Install the GitHub CLI", "skipped", None);
     }
@@ -136,25 +262,7 @@ async fn install_prereqs(app: AppHandle) -> Result<(), String> {
     // fails and npm is available.
     if !paths::has_tool("claude") {
         emit_step(&app, "claude", "Install Claude Code", "running", None);
-        let native = run_installer_line(app.clone(), "setup:claude", "irm https://claude.ai/install.ps1 | iex").await;
-        if native.is_err() {
-            if paths::has_tool("npm") {
-                let status = process::run_streamed_to_completion(
-                    app.clone(),
-                    "setup:claude",
-                    "npm",
-                    &["install", "-g", "@anthropic-ai/claude-code"],
-                    None,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-                if !status.success() {
-                    return Err("Failed to install Claude Code via the native installer or npm.".into());
-                }
-            } else {
-                return native;
-            }
-        }
+        ensure_claude_code(app.clone()).await?;
     } else {
         emit_step(&app, "claude", "Install Claude Code", "skipped", None);
     }
@@ -211,16 +319,7 @@ async fn install_prereqs(app: AppHandle) -> Result<(), String> {
 
     if !paths::has_tool("gh") {
         emit_step(&app, "gh", "Install the GitHub CLI", "running", None);
-        // Unlike git/elan/uv/claude, gh has no dependency-free curl
-        // one-liner on macOS - Homebrew is the only auto-install path.
-        if paths::has_tool("brew") {
-            run_installer_line(app.clone(), "setup:gh", "brew install gh").await?;
-        } else {
-            return Err(
-                "Couldn't auto-install the GitHub CLI without Homebrew - install Homebrew from https://brew.sh, or install gh yourself from https://cli.github.com/, then retry."
-                    .into(),
-            );
-        }
+        ensure_github_cli(app.clone()).await?;
     } else {
         emit_step(&app, "gh", "Install the GitHub CLI", "skipped", None);
     }
@@ -234,25 +333,7 @@ async fn install_prereqs(app: AppHandle) -> Result<(), String> {
 
     if !paths::has_tool("claude") {
         emit_step(&app, "claude", "Install Claude Code", "running", None);
-        let native = run_installer_line(app.clone(), "setup:claude", "curl -fsSL https://claude.ai/install.sh | sh").await;
-        if native.is_err() {
-            if paths::has_tool("npm") {
-                let status = process::run_streamed_to_completion(
-                    app.clone(),
-                    "setup:claude",
-                    "npm",
-                    &["install", "-g", "@anthropic-ai/claude-code"],
-                    None,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-                if !status.success() {
-                    return Err("Failed to install Claude Code via the native installer or npm.".into());
-                }
-            } else {
-                return native;
-            }
-        }
+        ensure_claude_code(app.clone()).await?;
     } else {
         emit_step(&app, "claude", "Install Claude Code", "skipped", None);
     }
@@ -284,19 +365,7 @@ async fn install_prereqs(app: AppHandle) -> Result<(), String> {
 
     if !paths::has_tool("gh") {
         emit_step(&app, "gh", "Install the GitHub CLI", "running", None);
-        if apt {
-            run_installer_line(
-                app.clone(),
-                "setup:gh",
-                "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
-                 sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
-                 echo \"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null && \
-                 sudo apt-get update -y && sudo apt-get install -y gh",
-            )
-            .await?;
-        } else {
-            return Err("Couldn't auto-install gh on this Linux distribution; install it from https://cli.github.com/ and retry.".into());
-        }
+        ensure_github_cli(app.clone()).await?;
     } else {
         emit_step(&app, "gh", "Install the GitHub CLI", "skipped", None);
     }
@@ -310,25 +379,7 @@ async fn install_prereqs(app: AppHandle) -> Result<(), String> {
 
     if !paths::has_tool("claude") {
         emit_step(&app, "claude", "Install Claude Code", "running", None);
-        let native = run_installer_line(app.clone(), "setup:claude", "curl -fsSL https://claude.ai/install.sh | sh").await;
-        if native.is_err() {
-            if paths::has_tool("npm") {
-                let status = process::run_streamed_to_completion(
-                    app.clone(),
-                    "setup:claude",
-                    "npm",
-                    &["install", "-g", "@anthropic-ai/claude-code"],
-                    None,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-                if !status.success() {
-                    return Err("Failed to install Claude Code via the native installer or npm.".into());
-                }
-            } else {
-                return native;
-            }
-        }
+        ensure_claude_code(app.clone()).await?;
     } else {
         emit_step(&app, "claude", "Install Claude Code", "skipped", None);
     }

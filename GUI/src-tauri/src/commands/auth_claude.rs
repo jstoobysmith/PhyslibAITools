@@ -46,6 +46,7 @@
 //! Windows also falls back to via a "sign in with a terminal instead" link
 //! if the automatic flow ever fails.
 
+use crate::commands::setup_env;
 use crate::paths;
 use crate::process;
 use serde::Serialize;
@@ -92,6 +93,8 @@ fn kill_pid(pid: u32) {
 /// frontend does not need to (and should not) poll anything itself.
 #[tauri::command]
 pub async fn start_claude_login(app: AppHandle, state: State<'_, ClaudeLoginState>) -> Result<(), String> {
+    setup_env::ensure_claude_code(app.clone()).await?;
+
     #[cfg(target_os = "windows")]
     {
         windows_impl::start(app, state).await
@@ -116,7 +119,8 @@ pub fn cancel_claude_login(state: State<'_, ClaudeLoginState>) -> Result<(), Str
 /// Opens a real terminal window running `claude setup-token`, native to the
 /// OS - the fallback path when the automatic flow isn't available or fails.
 #[tauri::command]
-pub fn open_claude_login_terminal() -> Result<(), String> {
+pub async fn open_claude_login_terminal(app: AppHandle) -> Result<(), String> {
+    setup_env::ensure_claude_code(app).await?;
     let path = paths::augmented_path_env();
 
     #[cfg(target_os = "windows")]
@@ -242,6 +246,7 @@ mod windows_impl {
 
     const TIMEOUT: Duration = Duration::from_secs(180);
     const POLL_INTERVAL: Duration = Duration::from_millis(750);
+    const STABLE_POLLS_REQUIRED: u8 = 2;
 
     static URL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https://\S+").unwrap());
     static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"sk-ant-\S+").unwrap());
@@ -260,6 +265,9 @@ mod windows_impl {
             Some(entry) => entry.1 = path_override.to_string(),
             None => entries.push(("PATH".to_string(), path_override.to_string())),
         }
+        // CreateProcess expects a caller-provided environment block to use
+        // Windows' case-insensitive alphabetical ordering.
+        entries.sort_by_key(|(key, _)| key.to_lowercase());
         let mut block: Vec<u16> = Vec::new();
         for (k, v) in entries {
             block.extend(format!("{k}={v}\0").encode_utf16());
@@ -279,7 +287,12 @@ mod windows_impl {
         let path_env = paths::augmented_path_env();
         let path_str = path_env.to_string_lossy().into_owned();
         let mut env_block = build_environment_block(&path_str);
-        let mut cmdline = to_wide("cmd.exe /C claude setup-token");
+        // Keep cmd.exe (and therefore the console buffer) alive after Claude
+        // exits. With /C, Claude could print the token and tear down the
+        // console between two polls, making a successful sign-in look like a
+        // failure. The poller kills this hidden /K shell once it has captured
+        // and verified the token, or on cancel/timeout.
+        let mut cmdline = to_wide("cmd.exe /D /K claude setup-token");
 
         let mut si = STARTUPINFOW::default();
         si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
@@ -318,12 +331,22 @@ mod windows_impl {
         let deadline = tokio::time::Instant::now() + TIMEOUT;
         let mut url_sent = false;
         let mut consecutive_failures = 0u32;
+        let mut url_candidate: Option<(String, u8)> = None;
+        let mut token_candidate: Option<(String, u8)> = None;
 
         loop {
+            // Cancellation and a newer login attempt both retire this poller.
+            // Returning silently is important: an error from an obsolete PID
+            // must not be delivered to the next attempt's event listener.
+            if !is_current(&app, pid) {
+                return;
+            }
+
             if tokio::time::Instant::now() >= deadline {
                 kill_pid(pid);
-                clear_if_current(&app, pid);
-                emit_error(&app, "Signing in took too long (over 3 minutes) and was cancelled. Try again, or use a terminal instead.");
+                if finish_if_current(&app, pid) {
+                    emit_error(&app, "Signing in took too long (over 3 minutes) and was cancelled. Try again, or use a terminal instead.");
+                }
                 return;
             }
 
@@ -332,17 +355,27 @@ mod windows_impl {
                     consecutive_failures = 0;
 
                     if !url_sent {
-                        if let Some(m) = URL_RE.find(&text) {
+                        let observed = URL_RE.find(&text).map(|m| m.as_str().to_string());
+                        if let Some(url) = observe_stable(&mut url_candidate, observed) {
                             url_sent = true;
-                            let _ = app.emit("claude-login", ClaudeLoginEvent::Url { url: m.as_str().to_string() });
+                            if is_current(&app, pid) {
+                                let _ = app.emit("claude-login", ClaudeLoginEvent::Url { url });
+                            }
                         }
                     }
 
-                    if let Some(m) = TOKEN_RE.find(&text) {
-                        let token = m.as_str().to_string();
-                        clear_if_current(&app, pid);
+                    // A console snapshot can land in the middle of a write.
+                    // Do not accept the first `sk-ant-...` prefix we see;
+                    // require the exact candidate to remain unchanged across
+                    // consecutive polls before stopping Claude and verifying.
+                    let observed = TOKEN_RE.find(&text).map(|m| m.as_str().to_string());
+                    if let Some(token) = observe_stable(&mut token_candidate, observed) {
                         kill_pid(pid);
-                        match verify_token(&token).await {
+                        let result = verify_token(&token).await;
+                        if !finish_if_current(&app, pid) {
+                            return;
+                        }
+                        match result {
                             Ok(()) => {
                                 let _ = app.emit("claude-login", ClaudeLoginEvent::Done { token });
                             }
@@ -359,8 +392,9 @@ mod windows_impl {
                     // process start; only treat it as "the process is gone"
                     // once that's persisted for a bit.
                     if consecutive_failures >= 3 {
-                        clear_if_current(&app, pid);
-                        emit_error(&app, "Sign-in closed before finishing. Try again, or use a terminal instead.");
+                        if finish_if_current(&app, pid) {
+                            emit_error(&app, "Sign-in closed before finishing. Try again, or use a terminal instead.");
+                        }
                         return;
                     }
                 }
@@ -370,13 +404,54 @@ mod windows_impl {
         }
     }
 
-    fn clear_if_current(app: &AppHandle, pid: u32) {
+    /// Returns whether `pid` still owns the active login attempt.
+    fn is_current(app: &AppHandle, pid: u32) -> bool {
+        let state = app.state::<ClaudeLoginState>();
+        let current = state
+            .0
+            .lock()
+            .map(|guard| *guard == Some(pid))
+            .unwrap_or(false);
+        current
+    }
+
+    /// Marks `pid` finished only if it still owns the active attempt. The
+    /// boolean lets obsolete pollers suppress their events.
+    fn finish_if_current(app: &AppHandle, pid: u32) -> bool {
         let state = app.state::<ClaudeLoginState>();
         if let Ok(mut guard) = state.0.lock() {
             if *guard == Some(pid) {
                 *guard = None;
+                return true;
             }
+        }
+        false
+    }
+
+    /// Returns a value only after the exact same observation has appeared in
+    /// enough consecutive console snapshots. This prevents a mid-write token
+    /// prefix from being mistaken for the completed credential.
+    fn observe_stable(
+        candidate: &mut Option<(String, u8)>,
+        observed: Option<String>,
+    ) -> Option<String> {
+        let Some(observed) = observed else {
+            *candidate = None;
+            return None;
         };
+
+        if let Some((value, count)) = candidate.as_mut() {
+            if *value == observed {
+                *count = (*count).saturating_add(1);
+                if *count >= STABLE_POLLS_REQUIRED {
+                    return Some(value.clone());
+                }
+                return None;
+            }
+        }
+
+        *candidate = Some((observed, 1));
+        None
     }
 
     fn emit_error(app: &AppHandle, message: &str) {
@@ -419,6 +494,23 @@ mod windows_impl {
             let _ = FreeConsole();
             let _ = AttachConsole(ATTACH_PARENT_PROCESS);
             result
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::observe_stable;
+
+        #[test]
+        fn token_must_be_unchanged_across_consecutive_polls() {
+            let mut candidate = None;
+
+            assert_eq!(observe_stable(&mut candidate, Some("sk-ant-oat01-part".into())), None);
+            assert_eq!(observe_stable(&mut candidate, Some("sk-ant-oat01-partial".into())), None);
+            assert_eq!(
+                observe_stable(&mut candidate, Some("sk-ant-oat01-partial".into())),
+                Some("sk-ant-oat01-partial".into())
+            );
         }
     }
 }

@@ -47,6 +47,12 @@ export function ClaudeLoginStep({ onDone }: { onDone: (token: string | null) => 
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
 
   const inProgress = useRef(false);
+  const unlistenRef = useRef<(() => void) | null>(null);
+
+  const stopListening = () => {
+    unlistenRef.current?.();
+    unlistenRef.current = null;
+  };
 
   useEffect(() => {
     currentPlatform()
@@ -56,13 +62,18 @@ export function ClaudeLoginStep({ onDone }: { onDone: (token: string | null) => 
 
   useEffect(() => {
     return () => {
-      if (inProgress.current) {
+      const shouldCancel = inProgress.current;
+      inProgress.current = false;
+      stopListening();
+      if (shouldCancel) {
         cancelClaudeLogin().catch(() => {});
       }
     };
   }, []);
 
   const start = async () => {
+    if (inProgress.current) return;
+
     if (!automaticAvailable) {
       setPhase("starting");
       await startFallbackTerminal();
@@ -74,28 +85,32 @@ export function ClaudeLoginStep({ onDone }: { onDone: (token: string | null) => 
     setError(null);
     setSignInUrl(null);
 
-    const unlisten = await onEvent<ClaudeLoginEvent>("claude-login", (ev) => {
-      if (ev.kind === "url") {
-        setSignInUrl(ev.url);
-        setPhase("waiting-for-approval");
-      } else if (ev.kind === "done") {
-        inProgress.current = false;
-        unlisten();
-        onDone(ev.token);
-      } else if (ev.kind === "error") {
-        inProgress.current = false;
-        unlisten();
-        setError(ev.message);
-        setPhase("error");
-      }
-    });
-
     try {
       inProgress.current = true;
+      const unlisten = await onEvent<ClaudeLoginEvent>("claude-login", (ev) => {
+        if (ev.kind === "url") {
+          setSignInUrl(ev.url);
+          setPhase("waiting-for-approval");
+        } else if (ev.kind === "done") {
+          inProgress.current = false;
+          stopListening();
+          onDone(ev.token);
+        } else if (ev.kind === "error") {
+          inProgress.current = false;
+          stopListening();
+          setError(ev.message);
+          setPhase("error");
+        }
+      });
+      if (!inProgress.current) {
+        unlisten();
+        return;
+      }
+      unlistenRef.current = unlisten;
       await startClaudeLogin();
     } catch (e) {
       inProgress.current = false;
-      unlisten();
+      stopListening();
       setError(String(e));
       setPhase("error");
     }
@@ -103,6 +118,7 @@ export function ClaudeLoginStep({ onDone }: { onDone: (token: string | null) => 
 
   const cancel = async () => {
     inProgress.current = false;
+    stopListening();
     await cancelClaudeLogin().catch(() => {});
     setPhase("idle");
     setSignInUrl(null);
@@ -195,7 +211,7 @@ export function ClaudeLoginStep({ onDone }: { onDone: (token: string | null) => 
               : "Opens a terminal to sign in with your Claude subscription."}
           </p>
           <Button onClick={start} busy={phase === "starting"}>
-            Sign in to Claude Code
+            {phase === "starting" ? "Preparing Claude Code…" : "Sign in to Claude Code"}
           </Button>
           <button type="button" onClick={checkAlreadySignedIn} disabled={checking} style={linkStyle}>
             {checking ? "Checking…" : "I already signed in a different way - check again"}

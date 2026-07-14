@@ -4,7 +4,8 @@
 //! we send automatically as soon as the process starts; `--git-protocol
 //! https` avoids the separate SSH-key prompt so nothing else needs input.
 
-use crate::process;
+use crate::commands::setup_env;
+use crate::{paths, process};
 use regex::Regex;
 use serde::Serialize;
 use std::process::Stdio;
@@ -103,6 +104,14 @@ fn emit_line(app: &AppHandle, code_re: &Regex, line: &str) {
 /// automatically after the browser step - no further input needed).
 #[tauri::command]
 pub async fn start_github_login(app: AppHandle) -> Result<(), String> {
+    if !paths::has_tool("gh") {
+        let _ = app.emit(
+            "github-login:line",
+            "GitHub CLI isn't installed yet; installing it now...",
+        );
+    }
+    setup_env::ensure_github_cli(app.clone()).await?;
+
     let mut cmd = process::command(
         "gh",
         &["auth", "login", "--hostname", "github.com", "--web", "--git-protocol", "https"],
