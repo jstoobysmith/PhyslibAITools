@@ -1,0 +1,281 @@
+/* Shared component styles for the Physlib GUI design system. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.625rem 1.1rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast),
+    opacity var(--transition-fast), transform var(--transition-fast);
+  white-space: nowrap;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.btn--primary {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 35%, transparent),
+    0 4px 10px -2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.btn--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 6px 16px -2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.btn--secondary {
+  background-color: var(--surface);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--surface) 92%, var(--foreground) 8%);
+}
+
+.btn--ghost {
+  background-color: transparent;
+  color: var(--foreground);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--surface) 92%, var(--foreground) 8%);
+}
+
+.btn--danger {
+  background-color: var(--danger);
+  color: #fff;
+}
+
+.btn--danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn--sm {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-surface);
+  padding: var(--space-5);
+}
+
+.card--interactive {
+  cursor: pointer;
+  transition: border-color var(--transition-fast), transform var(--transition-med),
+    box-shadow var(--transition-med);
+}
+
+.card--interactive:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  box-shadow: var(--shadow-overlay);
+  transform: translateY(-2px);
+}
+
+.card--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--foreground) 18%, transparent);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.log-pane {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  background-color: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+}
+
+.log-pane__line {
+  color: var(--foreground);
+}
+
+.log-pane__line--stderr {
+  color: var(--danger);
+}
+
+.code-block {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  background-color: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.code-block__line--add {
+  background-color: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--foreground);
+}
+
+.code-block__line--del {
+  background-color: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--foreground);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+
+.badge--neutral {
+  background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--muted);
+}
+
+.badge--success {
+  background-color: var(--success-bg);
+  color: var(--success);
+}
+
+.badge--warning {
+  background-color: var(--warning-bg);
+  color: var(--warning);
+}
+
+.badge--danger {
+  background-color: var(--danger-bg);
+  color: var(--danger);
+}
+
+.badge--accent {
+  background-color: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+/* Setup timeline - a connecting trace linking the setup steps, echoing the
+   line-and-vertex motif in the Physlib mark. The line segment below a node
+   fills with the accent color once that step is done, so progress visibly
+   "flows" down toward the next step - a fitting metaphor here since the
+   steps are a genuine dependency chain (the workspace step needs both
+   logins first), not just a numbered list. */
+.timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: 2.25rem 1fr;
+  column-gap: var(--space-4);
+}
+
+.timeline-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.timeline-node {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: border-color var(--transition-med), background-color var(--transition-med), color var(--transition-med);
+}
+
+.timeline-node--active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.timeline-node--done {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.timeline-connector {
+  width: 2px;
+  flex: 1;
+  min-height: var(--space-6);
+  background: var(--border);
+  margin: var(--space-1) 0;
+  transition: background-color var(--transition-med);
+}
+
+.timeline-connector--filled {
+  background: var(--accent);
+}
+
+.timeline-content {
+  padding-bottom: var(--space-6);
+}
+
+.timeline-item:last-child .timeline-content {
+  padding-bottom: 0;
+}
+
+/* A compact "already handled" row, used once a setup step is satisfied so it
+   doesn't keep taking up the same visual weight as an active step. */
+.setup-done-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
