@@ -13,17 +13,17 @@ see [Why native, not the bash script](#why-native-not-the-bash-script) below.
 
 ## Installing
 
-There's no published release yet (see "Known limitations" below), so for now
-"installing" means running the installer file built by [Running it](#running-it)
-below, or one someone built for you. Since none of these are code-signed,
-the OS will warn you the first time - that's expected, not a sign something's
-wrong, but it's worth knowing before you hit it.
+Download the installer for your platform from the
+[releases page](https://github.com/jstoobysmith/PhyslibAITools/releases)
+(or build one yourself - see [Running it](#running-it) below). Since none of
+these are code-signed, the OS will warn you the first time - that's expected,
+not a sign something's wrong, but it's worth knowing before you hit it.
 
 **Windows**
 
 1. Get `PhyslibAITools_<version>_x64-setup.exe` (or the `.msi` - both work
-   the same way; `npm run tauri build` produces both under
-   `src-tauri/target/release/bundle/`).
+   the same way; the releases page has both, and `npm run tauri build`
+   produces both under `src-tauri/target/release/bundle/`).
 2. Run it. Because it isn't code-signed, Windows SmartScreen will likely show
    *"Windows protected your PC"*. Click **More info**, then **Run anyway**.
 3. Follow the installer through its default prompts - it creates a Start
@@ -37,8 +37,10 @@ has the standalone installer.
 
 **macOS**
 
-`npm run tauri build` on a Mac produces a `.app` bundle and a `.dmg` under
-`src-tauri/target/release/bundle/`. This path is untested by this project
+Get the `.dmg` for your Mac from the releases page - `aarch64` for Apple
+Silicon, `x64` for Intel (`npm run tauri build` on a Mac produces the same
+`.app` bundle and `.dmg` under `src-tauri/target/release/bundle/`). Running
+the app on macOS is untested by this project
 (no Mac was available while building it - see "Known limitations" below for
 exactly what's been reviewed vs. actually run), but the steps follow
 standard Tauri/macOS conventions:
@@ -426,8 +428,12 @@ available cores on its own.
   headless, review-before-push flow (matching the script's own recommended
   `AUTO=1` default) - resuming a headless session for a follow-up message
   isn't confirmed to be supported by the CLI, so it's not built.
-- **No auto-updater, run-history browser, or release pipeline yet** - v1
-  focuses on the onboarding → task → PR path working end-to-end.
+- **No auto-updater or run-history browser yet** - v1 focuses on the
+  onboarding → task → PR path working end-to-end. Installers are built and
+  published by `.github/workflows/release.yml` (pushing a `v*` tag, or
+  running the workflow manually, drafts a GitHub release with Windows and
+  macOS installers), but installing a newer version is still a manual
+  download.
 
 ## Visual design
 

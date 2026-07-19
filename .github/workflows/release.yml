@@ -1,0 +1,77 @@
+name: Release GUI installers
+
+# Builds the PhyslibAITools desktop app (GUI/) and publishes the installers
+# as a GitHub release. Trigger it either by pushing a version tag (v0.1.0)
+# or manually from the Actions tab (workflow_dispatch) — in both cases the
+# release version is taken from GUI/src-tauri/tauri.conf.json.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon macs
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          # Intel macs
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+          # Windows x64 (NSIS .exe + .msi)
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: GUI/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: GUI/src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: GUI
+
+      - name: Build and upload installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: GUI
+          tagName: v__VERSION__
+          releaseName: "PhyslibAITools v__VERSION__"
+          releaseBody: |
+            Desktop app for contributing to Physlib with automated Claude Code tasks.
+
+            Download the installer for your platform below:
+            - **Windows**: the `.exe` (NSIS) or `.msi` installer
+            - **macOS (Apple Silicon)**: the `aarch64` `.dmg`
+            - **macOS (Intel)**: the `x64` `.dmg`
+
+            The macOS builds are unsigned — on first launch, right-click the app
+            and choose "Open" to bypass Gatekeeper.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
