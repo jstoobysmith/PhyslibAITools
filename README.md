@@ -1,5 +1,14 @@
 # Physlib AI Tools
 
+## Desktop app (GUI)
+
+Prefer a point-and-click experience? [`GUI/`](GUI/) contains a desktop app
+that walks you through the same flow — sign in to Claude Code and GitHub, set
+up a Lean/Mathlib workspace, then pick a task and watch Claude carry it out,
+ending in a real pull request. Installers for Windows and macOS are on the
+[releases page](https://github.com/jstoobysmith/PhyslibAITools/releases); see
+[`GUI/README.md`](GUI/README.md) for details.
+
 ## Scripts/physlib-auto-task.sh
 
 A generic one-shot harness that uses [Claude Code](https://docs.claude.com/en/docs/claude-code/overview)
