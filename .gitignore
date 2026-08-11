@@ -1,2 +1,5 @@
 /physlib-auto
 Physlib/
+
+# Physlib clone managed by Local/PhyslibDocImprover.py
+/Local/physlib/

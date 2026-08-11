@@ -18,16 +18,23 @@ convened, both by file-and-quote and by overlapping line range, so a re-run
 never records the same complaint twice. `--check` audits an existing report for
 duplicates without running the model at all.
 
+Physlib itself is cloned on first run into a gitignored directory beside this
+script, and fast-forwarded onto upstream on every run after that. If GitHub
+cannot be reached the existing clone is reviewed as it stands; if there is no
+clone either, that is an error -- there is nothing to review. Pass --physlib to
+review a checkout of your own instead, which is read as-is and never updated.
+
 Nothing is ever written back to the Lean source: the report is the output, and
 applying a correction is a deliberate separate step.
 
 Everything runs against a local ollama daemon; no data leaves the machine.
 
 Usage:
-    python3 scripts/PhyslibDocImprover.py
-    python3 scripts/PhyslibDocImprover.py --rounds 3 --report /tmp/found.yml
-    python3 scripts/PhyslibDocImprover.py --file Physlib/QFT/Basic.lean --attempts 5
-    python3 scripts/PhyslibDocImprover.py --check
+    python3 Local/PhyslibDocImprover.py
+    python3 Local/PhyslibDocImprover.py --rounds 3 --report /tmp/found.yml
+    python3 Local/PhyslibDocImprover.py --file Physlib/QFT/Basic.lean --attempts 5
+    python3 Local/PhyslibDocImprover.py --physlib ~/Documents/GitHub/JTSphyslib
+    python3 Local/PhyslibDocImprover.py --check
 """
 
 from __future__ import annotations
@@ -47,12 +54,17 @@ from pathlib import Path
 
 import yaml
 
-PHYSLIB = Path("/Users/josephsmith/Documents/GitHub/JTSphyslib/Physlib")
+PHYSLIB_URL = "https://github.com/leanprover-community/physlib.git"
+# Our own shallow clone of Physlib, kept beside this script and gitignored. It
+# is read-only as far as this tool is concerned, so it can always be hard-reset
+# to upstream without losing anything.
+PHYSLIB_CHECKOUT = Path(__file__).resolve().parent / "physlib"
+PHYSLIB = PHYSLIB_CHECKOUT / "Physlib"
 MODEL = "qwen3.5:9b"
 ROUNDS = 10
 ATTEMPTS = 0  # 0 = sweep for ever, until Ctrl-C
 NUM_CTX = 32768
-REPORT = Path(__file__).resolve().parent.parent / "reports" / "physlib-doc-mistakes.yml"
+REPORT = Path(__file__).resolve().parent / "physlib-doc-mistakes.yml"
 FALLBACK_REPO = "https://github.com/leanprover-community/physlib"
 FALLBACK_BRANCH = "master"
 
@@ -276,6 +288,86 @@ def run_ollama(args, prompt: str, role: str, think: bool | None = None) -> str:
     if used >= args.num_ctx:
         raise ContextOverflow(f"ollama truncated the prompt at {used} tokens")
     return THINK_RE.sub("", body.get("response", ""))
+
+
+# ---------------------------------------------------------------------------
+# The Physlib checkout
+# ---------------------------------------------------------------------------
+
+CLONE_TIMEOUT = 600  # a first clone pulls the whole library
+FETCH_TIMEOUT = 120  # a shallow update should be quick or not at all
+
+
+def _git(*cmd: str, timeout: int):
+    """Run git, returning None if it hangs -- a stall is a network failure too."""
+    try:
+        return subprocess.run(
+            ["git", *cmd], capture_output=True, text=True, timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def _ok(proc) -> bool:
+    return proc is not None and proc.returncode == 0
+
+
+def ensure_physlib(checkout: Path) -> None:
+    """Make sure `checkout` holds an up-to-date Physlib clone.
+
+    Clone it if it is missing, fast-forward it if it is already there. We never
+    write to the checkout, so updating is a hard reset onto upstream rather than
+    a merge -- there is no local work to preserve and nothing to conflict.
+
+    Being offline is only fatal when there is nothing to fall back on. With a
+    clone already on disk the hunt carries on against whatever it last synced
+    to; with no clone there is no documentation to review at all.
+    """
+    if (checkout / ".git").is_dir():
+        head = _git("-C", str(checkout), "rev-parse", "--abbrev-ref", "HEAD", timeout=30)
+        branch = head.stdout.strip() if _ok(head) else FALLBACK_BRANCH
+        before = _git("-C", str(checkout), "rev-parse", "HEAD", timeout=30)
+        print(f"{BOLD}Physlib:{OFF} {checkout} {DIM}(checking for updates){OFF}")
+
+        fetched = _git("-C", str(checkout), "fetch", "--depth", "1", "origin", branch,
+                       timeout=FETCH_TIMEOUT)
+        if not _ok(fetched):
+            stamp = _git("-C", str(checkout), "log", "-1", "--format=%h, %cd",
+                         "--date=short", timeout=30)
+            when = stamp.stdout.strip() if _ok(stamp) else "unknown revision"
+            print(f"  {DIM}cannot reach {PHYSLIB_URL}; working offline from the "
+                  f"checkout on disk ({when}){OFF}")
+            return
+
+        reset = _git("-C", str(checkout), "reset", "--hard", "FETCH_HEAD", timeout=60)
+        if not _ok(reset):
+            detail = (reset.stderr.strip() if reset else "git reset timed out")
+            sys.exit(f"Could not update the Physlib checkout at {checkout}:\n  {detail}\n"
+                     f"Delete it and let this script clone it again.")
+        after = _git("-C", str(checkout), "rev-parse", "HEAD", timeout=30)
+        sha = after.stdout.strip()[:8] if _ok(after) else "?"
+        moved = _ok(before) and _ok(after) and before.stdout != after.stdout
+        print(f"  {DIM}{'updated to' if moved else 'already up to date at'} "
+              f"{sha} on {branch}{OFF}")
+        return
+
+    if checkout.exists() and any(checkout.iterdir()):
+        sys.exit(f"{checkout} already exists but is not a git checkout.\n"
+                 f"Move it aside, or point --physlib at a Physlib checkout of your own.")
+
+    print(f"{BOLD}Physlib:{OFF} cloning {PHYSLIB_URL}\n"
+          f"  into {checkout} {DIM}(first run; this takes a minute){OFF}")
+    checkout.parent.mkdir(parents=True, exist_ok=True)
+    cloned = _git("clone", "--depth", "1", PHYSLIB_URL, str(checkout),
+                  timeout=CLONE_TIMEOUT)
+    if not _ok(cloned):
+        detail = "the clone timed out" if cloned is None else (
+            cloned.stderr.strip() or "git clone failed")
+        sys.exit(f"\nCould not clone Physlib from {PHYSLIB_URL}:\n  {detail}\n\n"
+                 f"There is no checkout at {checkout} to fall back on, so there is "
+                 f"nothing to review. Connect to the internet once so it can be "
+                 f"cloned, or point --physlib at a checkout you already have.")
+    print(f"  {DIM}cloned{OFF}")
 
 
 # ---------------------------------------------------------------------------
@@ -736,10 +828,18 @@ def choose_file(args) -> Path:
 
 
 def main() -> None:
+    global PHYSLIB
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("--file", help="Specific .lean file (default: sweep them all)")
+    ap.add_argument(
+        "--physlib",
+        type=Path,
+        help="Review an existing Physlib checkout of your own instead of the managed "
+             "clone. Yours is read as-is and never fetched or reset, so local work is "
+             "safe; point it at either the repository root or its Physlib/ directory",
+    )
     ap.add_argument("--model", default=MODEL)
     ap.add_argument(
         "--num-ctx",
@@ -789,6 +889,18 @@ def main() -> None:
     if args.num_ctx <= RESERVED_TOKENS:
         ap.error(f"--num-ctx must exceed the {RESERVED_TOKENS} tokens reserved for "
                  f"the reply, or nothing fits; the default is {NUM_CTX}")
+
+    if args.physlib:
+        # Someone else's checkout: take it exactly as it is. Fetching or
+        # resetting it could throw away work that is not ours to touch.
+        checkout = args.physlib.expanduser().resolve()
+        if not checkout.is_dir():
+            sys.exit(f"No such Physlib checkout: {checkout}")
+        inner = checkout / "Physlib"
+        PHYSLIB = inner if inner.is_dir() else checkout
+        print(f"{BOLD}Physlib:{OFF} {PHYSLIB} {DIM}(yours; left untouched){OFF}")
+    else:
+        ensure_physlib(PHYSLIB_CHECKOUT)
 
     print(f"{BOLD}Model:{OFF}  {args.model} ({args.num_ctx} ctx)")
     # Count from the report rather than the return value: Ctrl-C unwinds the
