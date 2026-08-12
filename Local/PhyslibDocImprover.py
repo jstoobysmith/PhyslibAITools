@@ -27,6 +27,15 @@ review a checkout of your own instead, which is read as-is and never updated.
 Nothing is ever written back to the Lean source: the report is the output, and
 applying a correction is a deliberate separate step.
 
+Filing is a separate, opt-in step: --file-report turns findings already in the
+report into GitHub issues without running the model at all, so there is always a
+chance to read them and throw out the junk before anything is public. It asks
+before each one. If you are logged into the gh CLI it files directly; otherwise
+it opens a prefilled issue form in your browser, so no token or configuration is
+needed. Every issue carries a hidden marker naming the finding, and the tracker
+is searched for it first, so two people running this tool cannot file the same
+mistake twice.
+
 Everything runs against a local ollama daemon; no data leaves the machine.
 
 Usage:
@@ -34,6 +43,8 @@ Usage:
     python3 Local/PhyslibDocImprover.py --rounds 3 --report /tmp/found.yml
     python3 Local/PhyslibDocImprover.py --file Physlib/QFT/Basic.lean --attempts 5
     python3 Local/PhyslibDocImprover.py --physlib ~/Documents/GitHub/JTSphyslib
+    python3 Local/PhyslibDocImprover.py --file-report --dry-run
+    python3 Local/PhyslibDocImprover.py --file-report --label doc-bot
     python3 Local/PhyslibDocImprover.py --check
 """
 
@@ -48,7 +59,9 @@ import re
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 
@@ -465,7 +478,8 @@ def build_issue(args, path: Path, original: str, span: tuple[int, int],
         # reasoning rather than throwing the finding away over a long file.
         print(f"  {DIM}too long to write up ({exc}); using the raw reasoning{OFF}")
         written = ""
-    title = tidy_title(tag("title", written) or "") or f"Incorrect documentation in {rel}"
+    title = (tidy_title(unescape_markdown(tag("title", written) or ""))
+             or f"Incorrect documentation in {rel}")
     explanation = unescape_markdown((tag("explanation", written) or "").strip() or why.strip())
 
     body = f"""\
@@ -494,6 +508,7 @@ The documentation in [`{rel}`]({repo}/blob/{branch}/{rel}#{lines}) \
 <sub>Found with a local LLM pass over Physlib documentation ({args.model}); \
 {votes} of {jurors} independent verification runs agreed this is a genuine error \
 before filing. Please sanity-check before merging.</sub>
+{marker(finding_id(rel, quote))}
 """
     return title, body
 
@@ -535,6 +550,13 @@ def print_diff(original: str, final: str, name: str) -> bool:
 # ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
+
+
+REPORT_HEADER = (
+    "# Physlib documentation mistakes found by a local LLM.\n"
+    "# Written by Local/PhyslibDocImprover.py; every entry was confirmed by a\n"
+    "# jury. Sanity-check before filing.\n"
+)
 
 
 class _BlockDumper(yaml.SafeDumper):
@@ -613,9 +635,7 @@ class Report:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as fh:
             if new:
-                fh.write("# Physlib documentation mistakes found by a local LLM.\n"
-                         "# Appended to by scripts/PhyslibDocImprover.py; every entry\n"
-                         "# was confirmed by a jury. Sanity-check before filing.\n")
+                fh.write(REPORT_HEADER)
             fh.write(yaml.dump([entry], Dumper=_BlockDumper, sort_keys=False,
                                allow_unicode=True, width=88))
         self.entries.append(entry)
@@ -623,6 +643,24 @@ class Report:
         self.spans.setdefault(entry["file"], []).append(
             (entry["first_line"], entry["last_line"], entry["id"])
         )
+
+    def mark_filed(self, key: str, url: str) -> None:
+        """Record where a finding was filed.
+
+        The only operation that is not an append, so the whole report is
+        rewritten -- via a temporary file, so an interrupted write cannot leave
+        a half-serialised report where the findings used to be.
+        """
+        for entry in self.entries:
+            if entry.get("id") == key:
+                entry["issue"] = url
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text(
+            REPORT_HEADER + yaml.dump(self.entries, Dumper=_BlockDumper,
+                                      sort_keys=False, allow_unicode=True, width=88),
+            encoding="utf-8",
+        )
+        tmp.replace(self.path)
 
 
 def check_report(path: Path) -> int:
@@ -662,6 +700,199 @@ def check_report(path: Path) -> int:
         print(f"  {GREEN}no duplicates{OFF}")
         return 0
     return 1 if exact else 0
+
+
+# ---------------------------------------------------------------------------
+# Filing issues on GitHub
+# ---------------------------------------------------------------------------
+
+MARKER = "physlib-doc-improver"
+SEARCH_API = "https://api.github.com/search/issues"
+# GitHub and browsers disagree on how long a URL may be; stay well inside the
+# smallest ceiling and leave the full text in the report.
+MAX_URL = 6000
+
+
+def marker(key: str) -> str:
+    """The hidden line that lets a filed issue be recognised again later."""
+    return f"<!-- {MARKER}: {key} -->"
+
+
+def _run(cmd: list[str], timeout: int, stdin: str | None = None):
+    """Run a command, returning None if it is missing or hangs."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=timeout, input=stdin)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+
+def gh_ready() -> bool:
+    """True if the gh CLI is installed and already logged in."""
+    return _ok(_run(["gh", "auth", "status"], timeout=20))
+
+
+def repo_slug() -> str:
+    """`owner/name` of the repository to file against."""
+    repo, _ = upstream_repo()
+    return "/".join(repo.rstrip("/").split("/")[-2:])
+
+
+def already_filed(slug: str, key: str, use_gh: bool) -> str | None:
+    """URL of an existing issue carrying this finding's marker, if there is one.
+
+    The report de-duplicates findings on one machine; two people running this
+    tool would still file the same mistake twice. Searching the tracker for the
+    marker makes the tracker itself the shared memory.
+
+    A failure here is not fatal -- being offline or rate-limited just means
+    falling back to the local report, which is what we had before anyway.
+    """
+    query = f'repo:{slug} in:body "{MARKER}: {key}"'
+    if use_gh:
+        proc = _run(["gh", "api", "-X", "GET", "search/issues",
+                     "-f", f"q={query}", "--jq", ".items[0].html_url // empty"],
+                    timeout=30)
+        return proc.stdout.strip() or None if _ok(proc) else None
+
+    req = urllib.request.Request(
+        f"{SEARCH_API}?q={urllib.parse.quote(query)}",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": MARKER},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            items = json.load(resp).get("items", [])
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return None
+    return items[0]["html_url"] if items else None
+
+
+def create_via_gh(slug: str, title: str, body: str, labels: list[str]) -> str | None:
+    """File through the gh CLI, returning the new issue's URL."""
+    cmd = ["gh", "issue", "create", "--repo", slug, "--title", title,
+           "--body-file", "-"]
+    for label in labels:
+        cmd += ["--label", label]
+    proc = _run(cmd, timeout=60, stdin=body)
+    if not _ok(proc):
+        detail = (proc.stderr.strip() if proc else "gh timed out") or "gh failed"
+        print(f"  {RED}gh could not file it:{OFF} {detail}")
+        return None
+    return next((ln.strip() for ln in proc.stdout.splitlines()
+                 if ln.strip().startswith("http")), None)
+
+
+def open_in_browser(slug: str, title: str, body: str) -> str:
+    """Open a prefilled issue form, so filing needs no token and no gh.
+
+    GitHub asks the user to log in at the point of submission and keeps the
+    draft, so this works for someone who has not set anything up at all.
+    """
+    def build(text: str) -> str:
+        return (f"https://github.com/{slug}/issues/new?"
+                + urllib.parse.urlencode({"title": title, "body": text}))
+
+    note = "\n\n*(truncated; the full text is in the report)*"
+    url = build(body)
+    if len(url) > MAX_URL:  # trim whole lines off the end, never the title
+        kept = body
+        # Measure with the note already attached, or adding it puts us back over.
+        while "\n" in kept and len(build(kept.rstrip() + note)) > MAX_URL:
+            kept = kept.rsplit("\n", 1)[0]
+        while kept and len(build(kept.rstrip() + note)) > MAX_URL:
+            kept = kept[: len(kept) // 2]  # no line breaks left to cut on
+        url = build(kept.rstrip() + note)
+    webbrowser.open(url)
+    return url
+
+
+def confirm(args, title: str) -> bool:
+    """Ask before filing. Never assume yes on a pipe -- silence is not consent."""
+    if args.yes:
+        return True
+    try:
+        return input(f'  file "{title}"? [y/N] ').strip().lower() in ("y", "yes")
+    except EOFError:  # unattended run without --yes
+        print(f"  {DIM}not filing (no terminal to ask; pass --yes to file){OFF}")
+        return False
+
+
+def file_issue(args, key: str, title: str, body: str) -> tuple[str | None, bool]:
+    """File one confirmed finding.
+
+    Returns the issue's URL if one exists by the end, and whether this run is
+    what created it -- an issue somebody else already filed is worth recording
+    but must not be counted as ours.
+
+    The URL is None for the browser route: the form is open but a human still
+    has to press Submit, and recording it as filed before that would be a lie.
+    """
+    slug = args.issue_repo or repo_slug()
+    use_gh = gh_ready()
+
+    existing = already_filed(slug, key, use_gh)
+    if existing:
+        print(f"  {DIM}already on the tracker: {existing}{OFF}")
+        return existing, False
+    if not confirm(args, title):
+        return None, False
+    if args.dry_run:
+        print(f"  {DIM}dry run: would file on {slug} via "
+              f"{'gh' if use_gh else 'the browser'}{OFF}")
+        return None, False
+
+    if use_gh:
+        url = create_via_gh(slug, title, body, args.label)
+        if url:
+            print(f"  {GREEN}filed{OFF} {url}")
+            return url, True
+        print(f"  {DIM}falling back to the browser{OFF}")
+    open_in_browser(slug, title, body)
+    print(f"  {GREEN}opened a prefilled issue form{OFF} "
+          f"{DIM}-- press Submit there to file it{OFF}")
+    return None, False
+
+
+def task_file_issues(args) -> int:
+    """File findings that are already in the report. Never runs the model."""
+    report = Report(args.report)
+    pending = [e for e in report.entries if not e.get("issue")]
+    print(f"{BOLD}Report:{OFF} {args.report} "
+          f"({len(report.entries)} finding{'' if len(report.entries) == 1 else 's'}, "
+          f"{len(pending)} not yet filed)")
+    if not pending:
+        return 0
+
+    slug = args.issue_repo or repo_slug()
+    print(f"{BOLD}Filing:{OFF} {slug} "
+          f"{DIM}via {'gh' if gh_ready() else 'the browser'}"
+          f"{'; dry run' if args.dry_run else ''}{OFF}\n")
+
+    filed = known = 0
+    for entry in pending:
+        key = str(entry.get("id") or "")
+        # Findings recorded before titles were unescaped still carry `\`` in them.
+        title = unescape_markdown(str(entry.get("issue_title") or "").strip())
+        body = str(entry.get("issue_body") or "").strip()
+        if not key or not title or not body:
+            print(f"  {DIM}skipping a finding with no written-up issue{OFF}")
+            continue
+        print(f"{BOLD}{entry.get('file')}{OFF} {DIM}{key}{OFF}")
+        print(f"  {title}")
+        if marker(key) not in body:  # written before markers existed
+            body = f"{body}\n{marker(key)}"
+        url, created = file_issue(args, key, title, body)
+        # A dry run must leave the report exactly as it found it, even when the
+        # search turns up something worth recording.
+        if url and not args.dry_run:
+            report.mark_filed(key, url)
+        filed += created
+        known += url is not None and not created
+        print()
+
+    print(f"{BOLD}{filed}{OFF} issue{'' if filed == 1 else 's'} filed"
+          + (f", {known} already on the tracker" if known else "") + ".")
+    return filed
 
 
 # ---------------------------------------------------------------------------
@@ -881,11 +1112,44 @@ def main() -> None:
         action="store_true",
         help="Also print the full GitHub issue text for each finding",
     )
+    ap.add_argument(
+        "--file-report",
+        action="store_true",
+        help="Open a GitHub issue for each finding in the report, then exit, without "
+             "running the model. Uses the gh CLI if you are logged into it, otherwise "
+             "opens a prefilled issue form in your browser. Findings already filed "
+             "are skipped, and it asks before each one unless --yes",
+    )
+    ap.add_argument(
+        "--yes", "-y", action="store_true", help="Do not ask before filing an issue"
+    )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --file-report, say what would be filed and stop short of filing it",
+    )
+    ap.add_argument(
+        "--label",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Label to put on filed issues; repeat for several. The label must "
+             "already exist on the repository",
+    )
+    ap.add_argument(
+        "--issue-repo",
+        metavar="OWNER/NAME",
+        help="Repository to file against (default: the Physlib checkout's upstream)",
+    )
     ap.add_argument("--seed", type=int, help="Seed for the file sweep order")
     args = ap.parse_args()
     args.report = args.report.expanduser()
     if args.check:
         sys.exit(check_report(args.report))
+    if args.file_report:
+        # Filing from the report needs neither the model nor a Physlib checkout.
+        task_file_issues(args)
+        sys.exit(0)
     if args.num_ctx <= RESERVED_TOKENS:
         ap.error(f"--num-ctx must exceed the {RESERVED_TOKENS} tokens reserved for "
                  f"the reply, or nothing fits; the default is {NUM_CTX}")
