@@ -591,7 +591,7 @@ def load_report(path: Path) -> list[dict]:
     if not path.exists():
         return []
     try:
-        loaded = yaml.safe_load(path.read_text()) or []
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or []
     except yaml.YAMLError as exc:
         sys.exit(f"{path} is not valid YAML:\n{exc}")
     if not isinstance(loaded, list):
@@ -938,7 +938,7 @@ def task_find_mistake(args, rng) -> int:
         if cap and attempt > cap:
             break
         examined += 1
-        original = path.read_text()
+        original = path.read_text(encoding="utf-8")
         rel = path.relative_to(PHYSLIB.parent).as_posix()
         tally = f"{found} found" + (f", {skipped} already known" if skipped else "")
         print(f"{BOLD}[{attempt}{'/' + str(cap) if cap else ''}]{OFF} {rel} "
