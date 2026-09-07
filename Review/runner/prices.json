@@ -1,0 +1,12 @@
+{
+  "_note": "USD per million tokens. Operator-maintained: these rates are NOT fetched from any provider and must be checked against the provider's current price list before a cost figure is quoted anywhere. A model with a null entry is dispatchable but its runs are recorded as unpriced (cost null), never as $0 and never at a guessed rate. tests/test_prices.py enforces that every dispatchable model has an entry, not that the numbers are right.",
+  "_schema": {"input": "USD per 1M input tokens", "output": "USD per 1M output tokens", "cache_read": "USD per 1M cached input tokens read", "cache_write": "USD per 1M input tokens written to cache"},
+  "models": {
+    "claude-opus-5":        {"input": null, "output": null, "cache_read": null, "cache_write": null},
+    "claude-sonnet-5":      {"input": null, "output": null, "cache_read": null, "cache_write": null},
+    "gpt-5.6-sol":          {"input": null, "output": null, "cache_read": null, "cache_write": null},
+    "deepseek/deepseek-v4-pro": {"input": null, "output": null, "cache_read": null, "cache_write": null},
+    "minimax/minimax-m3":   {"input": null, "output": null, "cache_read": null, "cache_write": null},
+    "x-ai/grok-4":          {"input": null, "output": null, "cache_read": null, "cache_write": null}
+  }
+}

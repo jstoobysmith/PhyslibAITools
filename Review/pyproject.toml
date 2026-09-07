@@ -1,0 +1,24 @@
+[project]
+name = "physlibalpha-review"
+version = "0.1.0"
+description = "Run the PhyslibAlpha AI code review on a PR using your own Claude/Codex/Kiro subscription."
+readme = "REVIEWING.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+# The engine shells out to the `git`, `gh`, `claude`, `codex`, and `kiro-cli` CLIs.
+# PyYAML is needed to read the API maps, which stand in for Tau Ceti's roadmap repo.
+dependencies = ["PyYAML>=6.0"]
+
+[project.scripts]
+physlibalpha-review = "runner.cli:main"
+physlibalpha-review-costs = "runner.costs:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["runner"]
+
+[tool.setuptools.package-data]
+runner = ["prices.json"]
