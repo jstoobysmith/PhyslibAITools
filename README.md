@@ -9,6 +9,27 @@ ending in a real pull request. Installers for Windows and macOS are on the
 [releases page](https://github.com/jstoobysmith/PhyslibAITools/releases); see
 [`GUI/README.md`](GUI/README.md) for details.
 
+## Review/ — AI review for PhyslibAlpha
+
+[`Review/`](Review/) is a review engine for [PhyslibAlpha](https://github.com/leanprover-community/physlib/tree/master/PhyslibAlpha),
+the lighter-review staging area downstream of Physlib. Where the rest of this repo *writes*
+contributions, this one *judges* them: several independent agents, one per angle, each read-only,
+each returning `approve` / `request_changes` / `block` with evidence.
+
+It takes the **API maps as the roadmap.** Physlib records what each API should contain in an
+`API-map.yaml`, and a requirement marked `done: false` is an open target — so the `scope` rubric
+checks that new material advances a specific one, the same way Tau Ceti's checks against a
+roadmap node. `Tasks/APIMap.md` in this repo is what builds those maps; this is what reads them.
+
+```bash
+uvx --from ./Review physlibalpha-review 1409          # dry run: prints verdicts, posts nothing
+uvx --from ./Review physlibalpha-review 1409 --post   # publish the scoreboard + threads, as you
+```
+
+Runs on your own Claude/Codex/Kiro subscription rather than a metered API key. See
+[`Review/README.md`](Review/README.md) for the design and [`Review/REVIEWING.md`](Review/REVIEWING.md)
+for prerequisites and flags.
+
 ## Scripts/physlib-auto-task.sh
 
 A generic one-shot harness that uses [Claude Code](https://docs.claude.com/en/docs/claude-code/overview)

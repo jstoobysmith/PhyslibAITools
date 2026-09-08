@@ -1,0 +1,33 @@
+PhyslibAlpha Review
+Copyright 2026 Alexander Zughaid and the PhyslibAITools contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------------
+Third-party material
+--------------------------------------------------------------------------------
+
+This work is derived from Tau Ceti Review, and redistributes portions of it.
+
+    Tau Ceti Review
+    https://github.com/TauCetiProject/TauCetiReview
+    Copyright the Tau Ceti Project contributors
+    Licensed under the Apache License, Version 2.0
+
+The following files are derived from that project and are modified from the
+originals. Each carries a notice to that effect at the top of the file, as
+Apache-2.0 section 4(b) requires:
+
+    runner/verdict.py     copied; docstrings reflowed, imports split
+    runner/casefile.py    copied; one docstring re-pointed at the API maps
+    runner/ledger.py      copied; a mkdir added before the ledger write
+    pyproject.toml        adapted (renamed, PyYAML dependency added)
+
+The review protocol in rubrics/_common.md, the shape of rubrics/scope.md, the
+table format in rubrics/README.md, and much of the prose in README.md and
+REVIEWING.md are also derived from that project.
+
+The remaining rubrics and the rest of the engine (runner/cli.py, review.py,
+reviewers.py, workspace.py, apimaps.py, post.py, render.py, archive.py,
+pricing.py, costs.py, and the tests) were written for this project against the
+behaviour Tau Ceti Review documents, not copied from its source.
