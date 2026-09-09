@@ -208,6 +208,38 @@ The scratch tree is added to `.git/info/exclude` (not `.gitignore`, which
 belongs to upstream) the first time it's created, so generated Lean can never
 turn up in a task run's staged diff or a pull request.
 
+### Exporting and importing a mission
+
+A mission's toolbar has **Export JSON**, and the new-mission screen offers
+**Open mission JSON…** as an alternative to the blank form. Together they make
+a graph a portable artifact: shareable, reviewable, checked into a repo
+alongside the Lean it describes.
+
+The export is read back from disk rather than taken from the UI, so a file is
+always of what was actually saved, never of unsaved state. It's re-serialized
+on the way out, so an export is provably valid, pretty-printed JSON.
+
+Import makes two deliberate choices:
+
+- **A fresh mission id, but node and sketch ids are kept.** Every internal
+  reference (`dependsOn`, a sketch's `targetId` and `imports`) is expressed in
+  node ids, so keeping them preserves the graph exactly; only the mission's own
+  identity changes, which means importing the same file twice gives two
+  independent missions rather than one silently overwriting the other.
+- **Verification results are dropped unless they were produced here.** A check
+  is a claim about one Physlib/Mathlib/toolchain combination, and a mission
+  from somebody else's machine carries claims this app cannot vouch for.
+  Anything whose recorded environment doesn't match the current workspace on
+  *all* of Physlib revision, Mathlib revision and toolchain is reset to
+  unchecked - and an absent revision on either side counts as a mismatch,
+  because "cannot tell" is not "matches". No node arrives wearing a green tick
+  it hasn't earned here; re-verifying is one click.
+
+Attached *files* are referenced by absolute path, so a mission imported from
+elsewhere will usually not find them. That is reported by name rather than
+treated as a failure - the graph is unaffected, and links (which are just URLs)
+always survive.
+
 ### The verification environment
 
 A mission verifies **in place** — `lake env lean` resolves imports against

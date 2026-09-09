@@ -90,6 +90,8 @@ pub fn run() {
             commands::missions::delete_mission,
             commands::missions::import_source_files,
             commands::missions::remove_source_file,
+            commands::missions::export_mission,
+            commands::missions::read_mission_file,
             commands::lean::materialize_lean,
             commands::lean::verify_lean,
             commands::lean::workspace_lean_env,

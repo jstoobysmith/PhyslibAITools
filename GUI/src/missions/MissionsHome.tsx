@@ -13,7 +13,7 @@ import type { Mission, MissionSummary } from "./missionTypes";
 type Screen =
   | { name: "list" }
   | { name: "new" }
-  | { name: "mission"; mission: Mission; autoGenerate: boolean };
+  | { name: "mission"; mission: Mission; autoGenerate: boolean; notes?: string[] };
 
 /**
  * The mission workbench's own root. Deliberately self-contained: it shares
@@ -65,6 +65,11 @@ export function MissionsHome({
     setScreen({ name: "mission", mission, autoGenerate: true });
   };
 
+  // An imported mission already has its graph, so it opens without kicking off
+  // a generate run.
+  const onImported = (mission: Mission, notes: string[]) =>
+    setScreen({ name: "mission", mission, autoGenerate: false, notes });
+
   const liveRuns = allRuns.filter((r) => r.status === "running");
 
   const remove = async (id: string, title: string) => {
@@ -89,6 +94,7 @@ export function MissionsHome({
         workspaceDir={workspaceDir}
         claudeOauthToken={claudeOauthToken}
         autoGenerate={screen.autoGenerate}
+        importNotes={screen.notes}
         onBack={() => {
           refresh();
           setScreen({ name: "list" });
@@ -99,7 +105,12 @@ export function MissionsHome({
 
   if (screen.name === "new") {
     return (
-      <NewMissionForm defaultModel={defaultModel} onCancel={() => setScreen({ name: "list" })} onCreate={onCreated} />
+      <NewMissionForm
+        defaultModel={defaultModel}
+        onCancel={() => setScreen({ name: "list" })}
+        onCreate={onCreated}
+        onImport={onImported}
+      />
     );
   }
 

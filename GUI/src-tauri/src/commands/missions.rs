@@ -249,9 +249,123 @@ pub fn remove_source_file(app: AppHandle, req: RemoveSourceFileRequest) -> Resul
     std::fs::remove_file(&canon_target).map_err(|e| e.to_string())
 }
 
+/// Writes a mission's record to a path the user chose. The document is read
+/// back from disk rather than taken from the caller, so an export is always of
+/// what is actually saved - never of unsaved UI state that might differ.
+#[tauri::command]
+pub fn export_mission(app: AppHandle, mission_id: String, dest_path: String) -> Result<(), String> {
+    let path = mission_file(&app, &mission_id)?;
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("Couldn't read that mission: {e}"))?;
+    // Reserialized rather than copied so the export is pretty-printed and
+    // provably valid JSON, not whatever happens to be on disk.
+    let doc: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("That mission's file is corrupt: {e}"))?;
+    let pretty = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    std::fs::write(&dest_path, pretty).map_err(|e| format!("Couldn't write {dest_path}: {e}"))
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedMission {
+    pub doc: serde_json::Value,
+    /// Labels of file sources whose path no longer resolves. A mission
+    /// exported from another machine (or after its folder was cleared) carries
+    /// absolute paths into a `sources/` directory that isn't there any more;
+    /// the graph is still perfectly good, so these are reported rather than
+    /// treated as a failure.
+    pub missing_files: Vec<String>,
+}
+
+/// Reads a mission document from an arbitrary path for import. Only checks
+/// that it is JSON and mission-shaped - what to do about stale verification
+/// results and unresolvable sources is decided by the caller, which knows the
+/// current workspace environment.
+#[tauri::command]
+pub fn read_mission_file(path: String) -> Result<ImportedMission, String> {
+    const MAX_BYTES: u64 = 64 * 1024 * 1024;
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    if size > MAX_BYTES {
+        return Err("That file is far too large to be a mission.".into());
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("Couldn't read that file: {e}"))?;
+    let doc: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("That isn't valid JSON: {e}"))?;
+
+    let has = |k: &str| doc.get(k).is_some();
+    if !doc.is_object() || !has("title") || !doc.get("nodes").map(|n| n.is_array()).unwrap_or(false) {
+        return Err("That JSON doesn't look like a mission - it needs at least a `title` and a `nodes` array.".into());
+    }
+
+    let mut missing_files = Vec::new();
+    if let Some(sources) = doc.get("sources").and_then(|s| s.as_array()) {
+        for source in sources {
+            if source.get("kind").and_then(|k| k.as_str()) != Some("file") {
+                continue;
+            }
+            let path = source.get("path").and_then(|p| p.as_str()).unwrap_or("");
+            if path.is_empty() || !Path::new(path).is_file() {
+                missing_files
+                    .push(source.get("label").and_then(|l| l.as_str()).unwrap_or(path).to_string());
+            }
+        }
+    }
+    Ok(ImportedMission { doc, missing_files })
+}
+
 pub fn now_millis() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(dir: &std::path::Path, name: &str, body: &str) -> String {
+        let p = dir.join(name);
+        std::fs::write(&p, body).unwrap();
+        p.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn rejects_json_that_is_not_a_mission() {
+        let dir = std::env::temp_dir().join(format!("p2m-test-{}", now_millis()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let not_json = write(&dir, "a.json", "{ this is not json");
+        assert!(read_mission_file(not_json).unwrap_err().contains("valid JSON"));
+
+        // Valid JSON, but a different kind of document entirely.
+        let wrong_shape = write(&dir, "b.json", r#"{"hello":"world"}"#);
+        assert!(read_mission_file(wrong_shape).unwrap_err().contains("look like a mission"));
+
+        // `nodes` present but not an array.
+        let bad_nodes = write(&dir, "c.json", r#"{"title":"X","nodes":42}"#);
+        assert!(read_mission_file(bad_nodes).is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reports_file_sources_that_no_longer_resolve() {
+        let dir = std::env::temp_dir().join(format!("p2m-test-{}", now_millis() + 1));
+        std::fs::create_dir_all(&dir).unwrap();
+        let real = write(&dir, "paper.pdf", "%PDF-");
+
+        let doc = format!(
+            r#"{{"title":"M","nodes":[],"sources":[
+                 {{"kind":"file","label":"here.pdf","path":"{real}"}},
+                 {{"kind":"file","label":"gone.pdf","path":"/nope/gone.pdf"}},
+                 {{"kind":"link","label":"arxiv","url":"https://arxiv.org/abs/1"}}
+               ]}}"#
+        );
+        let path = write(&dir, "m.json", &doc);
+        let imported = read_mission_file(path).unwrap();
+
+        // Only the unresolvable *file* is reported; links are never checked,
+        // and a present file is not a problem.
+        assert_eq!(imported.missing_files, vec!["gone.pdf".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

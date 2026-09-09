@@ -8,7 +8,7 @@ import { Latex } from "./Latex";
 import { RunPanel } from "./RunPanel";
 import { SourceEditor } from "./SourceEditor";
 import { frontier, goalGap, staleChecks, stats, validate } from "./graph";
-import { MODEL_CHOICES } from "./missionStore";
+import { MODEL_CHOICES, exportMission, pickExportPath } from "./missionStore";
 import {
   canStart,
   editMission,
@@ -40,6 +40,7 @@ export function MissionView({
   workspaceDir,
   claudeOauthToken,
   autoGenerate,
+  importNotes,
   onBack,
 }: {
   mission: Mission;
@@ -47,6 +48,8 @@ export function MissionView({
   claudeOauthToken: string | null;
   /** Set when the mission was just created, so generation starts on its own. */
   autoGenerate: boolean;
+  /** What an import did to this mission, shown once on arrival. */
+  importNotes?: string[];
   onBack: () => void;
 }) {
   primeMission(initial);
@@ -71,6 +74,22 @@ export function MissionView({
   const [showIssues, setShowIssues] = useState(false);
   const [showSources, setShowSources] = useState(false);
   const [focusFrontier, setFocusFrontier] = useState(false);
+  const [exported, setExported] = useState<string | null>(null);
+  const [notesShown, setNotesShown] = useState(true);
+
+  // Exports what is actually saved on disk, not this component's state, so the
+  // file can never be a snapshot of something that was never persisted.
+  const exportJson = useCallback(async () => {
+    setError(null);
+    try {
+      const dest = await pickExportPath(mission.title);
+      if (!dest) return;
+      await exportMission(mission.id, dest);
+      setExported(dest);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [mission.id, mission.title]);
 
   const validation = useMemo(() => validate(mission), [mission]);
   const missionStats = useMemo(() => stats(mission), [mission]);
@@ -232,6 +251,9 @@ export function MissionView({
         <button className="btn btn--ghost btn--sm" onClick={() => setShowSources((v) => !v)}>
           Sources ({mission.sources.length})
         </button>
+        <button className="btn btn--ghost btn--sm" onClick={exportJson} title="Save this mission's JSON to a file">
+          ⤓ Export JSON
+        </button>
         <button
           className={`mvalid mvalid--${errorCount ? "bad" : warningCount ? "warn" : "ok"}`}
           onClick={() => setShowIssues((v) => !v)}
@@ -243,6 +265,30 @@ export function MissionView({
       </div>
 
       {error && <div className="mbanner mbanner--bad">{error}</div>}
+
+      {importNotes && importNotes.length > 0 && notesShown && (
+        <div className="mbanner mbanner--gap">
+          <span>
+            <strong>Imported.</strong> {importNotes.join(" ")}
+          </span>
+          <div className="mview__spacer" />
+          <button className="btn btn--ghost btn--sm" onClick={() => setNotesShown(false)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {exported && (
+        <div className="mbanner">
+          <span>
+            Saved to <code>{exported}</code>
+          </span>
+          <div className="mview__spacer" />
+          <button className="btn btn--ghost btn--sm" onClick={() => setExported(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {offCanonical && (
         <div className="mbanner mbanner--bad">

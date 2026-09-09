@@ -9,7 +9,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { moduleForNode, solutionModule, topoOrder } from "./graph";
 import type {
   AgentGraph,
@@ -107,6 +107,124 @@ export async function importFileSources(missionId: string, paths: string[]): Pro
 
 export const removeFileSource = (missionId: string, path: string) =>
   invoke<void>("remove_source_file", { req: { missionId, path } });
+
+// --- export / import -----------------------------------------------------
+
+export const exportMission = (missionId: string, destPath: string) =>
+  invoke<void>("export_mission", { missionId, destPath });
+
+export interface ImportedMission {
+  doc: unknown;
+  missingFiles: string[];
+}
+
+export const readMissionFile = (path: string) => invoke<ImportedMission>("read_mission_file", { path });
+
+/** Where to save an exported mission. Defaults to a filename derived from the
+ *  title, since "mission.json" tells you nothing in a downloads folder. */
+export const pickExportPath = (title: string) =>
+  save({
+    title: "Export mission",
+    defaultPath: `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "mission"}.json`,
+    filters: [{ name: "Mission JSON", extensions: ["json"] }],
+  }) as Promise<string | null>;
+
+export const pickMissionFile = () =>
+  open({
+    multiple: false,
+    title: "Open a mission file",
+    filters: [{ name: "Mission JSON", extensions: ["json"] }],
+  }) as Promise<string | null>;
+
+/**
+ * Turns an imported document into a mission this app can own.
+ *
+ * Two deliberate decisions:
+ *
+ * - **A fresh mission id.** Node and sketch ids are kept exactly as they are,
+ *   because every internal reference (`dependsOn`, a sketch's `targetId` and
+ *   `imports`) is expressed in them; only the mission's own identity changes,
+ *   so importing the same file twice gives two independent missions rather
+ *   than one silently overwriting the other.
+ * - **Verification results are dropped unless they were produced here.** A
+ *   check is a claim about one Physlib/Mathlib/toolchain combination (see
+ *   `LeanEnv`), and a mission from somebody else's machine carries claims this
+ *   app cannot vouch for. Anything whose recorded environment doesn't match
+ *   the current workspace is reset to unchecked, so no node arrives wearing a
+ *   green tick it hasn't earned here. Re-verifying is one click.
+ */
+export function prepareImportedMission(
+  doc: unknown,
+  currentEnv: LeanEnv | null,
+): { mission: Mission; clearedChecks: number; keptChecks: number } {
+  const raw = doc as Partial<Mission>;
+  const title = (raw.title ?? "Imported mission").trim();
+  let clearedChecks = 0;
+  let keptChecks = 0;
+
+  const sameEnv = (check: LeanCheck | null | undefined): boolean => {
+    if (!check) return false;
+    if (!currentEnv || !check.env) return false;
+    const e = check.env;
+    // Every axis must be known *and* equal. An absent revision on either side
+    // means we cannot tell, and "cannot tell" is not "matches".
+    return Boolean(
+      e.physlibRev && e.physlibRev === currentEnv.physlibRev &&
+      e.mathlibRev && e.mathlibRev === currentEnv.mathlibRev &&
+      e.toolchain && e.toolchain === currentEnv.toolchain,
+    );
+  };
+
+  const rebase = <T extends { check: LeanCheck | null }>(item: T): T => {
+    if (!item.check) return item;
+    if (sameEnv(item.check)) {
+      keptChecks++;
+      return item;
+    }
+    clearedChecks++;
+    return { ...item, check: null };
+  };
+
+  const nodes: MissionNode[] = (raw.nodes ?? []).map((node) => {
+    const next = rebase({ ...node });
+    const proof = next.proof ? rebase({ ...next.proof }) : null;
+    return {
+      ...next,
+      proof,
+      // Status is derived, never imported: a node is only `open`/`proved` if a
+      // check survived above.
+      status: next.check?.ok ? (proof?.check?.ok ? "proved" : "open") : next.check ? "failed" : "draft",
+    };
+  });
+
+  const sketches: ProofSketch[] = (raw.sketches ?? []).map((sketch) => {
+    const next = rebase({ ...sketch });
+    return { ...next, status: next.check ? (next.check.ok ? "verified" : "failed") : "draft" };
+  });
+
+  return {
+    mission: {
+      ...(raw as Mission),
+      id: missionId(title),
+      title,
+      problem: raw.problem ?? "",
+      sources: raw.sources ?? [],
+      model: raw.model ?? null,
+      knownStatus: raw.knownStatus ?? "unknown",
+      openProblem: raw.openProblem ?? false,
+      gapNote: raw.gapNote ?? "",
+      summary: raw.summary ?? "",
+      references: raw.references ?? [],
+      runLog: raw.runLog ?? [],
+      nodes,
+      sketches,
+      createdAt: raw.createdAt ?? nowIso(),
+      updatedAt: nowIso(),
+    },
+    clearedChecks,
+    keptChecks,
+  };
+}
 
 export const pickSourceFiles = () =>
   open({

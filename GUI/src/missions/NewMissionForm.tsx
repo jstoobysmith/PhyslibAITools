@@ -2,7 +2,15 @@ import { useState } from "react";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { SourceEditor } from "./SourceEditor";
-import { MODEL_CHOICES, newMission, saveMission } from "./missionStore";
+import {
+  MODEL_CHOICES,
+  newMission,
+  pickMissionFile,
+  prepareImportedMission,
+  readMissionFile,
+  saveMission,
+} from "./missionStore";
+import { useLeanEnv } from "./missionRuns";
 import type { Mission, MissionSource } from "./missionTypes";
 
 const KNOWN_STATUS: { value: Mission["knownStatus"]; label: string; hint: string }[] = [
@@ -35,10 +43,15 @@ export function NewMissionForm({
   defaultModel,
   onCancel,
   onCreate,
+  onImport,
 }: {
   defaultModel: string | null;
   onCancel: () => void;
   onCreate: (mission: Mission) => void;
+  /** An imported mission opens without generating - it already has a graph.
+   *  The notes say what the import did to it (results kept vs reset, files it
+   *  couldn't find), which the mission view shows as a banner. */
+  onImport: (mission: Mission, notes: string[]) => void;
 }) {
   const [draft, setDraft] = useState<Mission | null>(null);
   const [title, setTitle] = useState("");
@@ -48,8 +61,43 @@ export function NewMissionForm({
   const [model, setModel] = useState<string | null>(defaultModel);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const leanEnv = useLeanEnv();
 
   const ready = title.trim().length > 2 && problem.trim().length > 20;
+
+  /**
+   * Start from a mission file instead of a blank form. The imported document
+   * gets a fresh mission id and has any verification results dropped unless
+   * they were produced against this exact workspace - see
+   * `prepareImportedMission`.
+   */
+  const importFile = async () => {
+    setError(null);
+    try {
+      const path = await pickMissionFile();
+      if (!path) return;
+      setImporting(true);
+      const { doc, missingFiles } = await readMissionFile(path);
+      const { mission, clearedChecks, keptChecks } = prepareImportedMission(doc, leanEnv);
+      await saveMission(mission);
+      const notes = [
+        `Imported ${mission.nodes.length} node${mission.nodes.length === 1 ? "" : "s"}.`,
+        keptChecks > 0 ? `${keptChecks} verification${keptChecks === 1 ? "" : "s"} still valid here.` : "",
+        clearedChecks > 0
+          ? `${clearedChecks} verification${clearedChecks === 1 ? "" : "s"} reset — they were made against a different Physlib.`
+          : "",
+        missingFiles.length > 0 ? `Attached files not found on this machine: ${missingFiles.join(", ")}.` : "",
+      ].filter(Boolean);
+      // Handed to the caller rather than logged, so it lands on the mission
+      // itself where the user can actually act on it.
+      onImport(mission, notes);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImporting(false);
+    }
+  };
 
   /** Attached files need somewhere to land, so the first attachment is what
    *  actually brings the mission folder into being. */
@@ -105,6 +153,19 @@ export function NewMissionForm({
       </p>
 
       {error && <div className="mbanner mbanner--bad">{error}</div>}
+
+      <Card className="mnew__import">
+        <div>
+          <strong>Already have a mission file?</strong>
+          <p className="minspect__muted">
+            Open an exported <code>.json</code> and carry on from its graph. Results verified against a different
+            Physlib are reset — re-verifying here is one click.
+          </p>
+        </div>
+        <Button variant="secondary" size="sm" busy={importing} onClick={importFile}>
+          Open mission JSON…
+        </Button>
+      </Card>
 
       <Card className="mnew__card">
         <label className="mfield">

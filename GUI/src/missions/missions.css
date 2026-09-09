@@ -1148,3 +1148,27 @@ select.mfield__input {
 .mnode--goal {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent), var(--shadow-surface);
 }
+
+/* "Start from a file" sits above the blank form as an alternative to filling
+   it in, so it reads as a fork in the road rather than another field. */
+.mnew__import {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  width: 100%;
+  border-style: dashed;
+}
+
+.mnew__import > div {
+  flex: 1;
+}
+
+.mnew__import strong {
+  font-size: 0.875rem;
+}
+
+.mnew__import p {
+  margin: 0.2rem 0 0;
+  max-width: 62ch;
+}
