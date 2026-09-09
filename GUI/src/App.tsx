@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { ThemeProvider } from "./theme/ThemeProvider";
-import { AppShell } from "./components/AppShell";
+import { AppShell, type Section } from "./components/AppShell";
 import { Spinner } from "./components/Spinner";
 import { SetupDashboard } from "./onboarding/SetupDashboard";
+import { SettingsView } from "./settings/SettingsView";
 import { Dashboard } from "./tasks/Dashboard";
 import { TaskRunView } from "./tasks/TaskRunView";
+import { MissionsHome } from "./missions/MissionsHome";
+import { WorkspaceStatus } from "./components/WorkspaceStatus";
 import { RunningTaskBanner } from "./tasks/RunningTaskBanner";
 import { checkWorkspaceHealth, detectTools, loadConfig } from "./lib/tauri";
 import { isClaudeReady, isEnvReady, isGithubReady } from "./lib/readiness";
@@ -30,6 +33,10 @@ function App() {
   // keeps updating), reachable again through the persistent banner.
   const [activeTask, setActiveTask] = useState<ParsedTask | null>(null);
   const [viewingRun, setViewingRun] = useState(false);
+  // Which half of the app is on screen. Missions is a separate interface that
+  // shares only the Claude credentials and the Physlib workspace with the task
+  // flow, so it lives beside it rather than inside it.
+  const [section, setSection] = useState<Section>("tasks");
 
   const openTask = (task: ParsedTask) => {
     setActiveTask(task);
@@ -53,12 +60,21 @@ function App() {
       .catch((e) => setLoadError(String(e)));
   }, []);
 
+  // Either of these takes over the whole screen: onboarding until everything
+  // is ready, and the profile/settings screen whenever it's open.
   const showAccountScreen = showSettings || stage === "setup";
 
   return (
     <ThemeProvider>
       <AppShell
         onSettingsClick={stage === "dashboard" && !viewingRun ? () => setShowSettings(true) : undefined}
+        section={stage === "dashboard" && !viewingRun && !showSettings ? section : undefined}
+        onSectionChange={setSection}
+        statusBar={
+          stage === "dashboard" && !viewingRun && !showSettings ? (
+            <WorkspaceStatus workspaceDir={config?.workspaceDir ?? null} claudeOauthToken={config?.claudeOauthToken ?? null} />
+          ) : undefined
+        }
         banner={
           activeTask && !viewingRun ? (
             <RunningTaskBanner taskName={activeTask.name} onReturn={() => setViewingRun(true)} />
@@ -100,7 +116,25 @@ function App() {
         {/* Everything else is hidden (not unmounted) while the run is on
             screen, so returning to it is instant and never restarts it. */}
         <div style={{ display: viewingRun ? "none" : "block" }}>
-          {!loadError && showAccountScreen && config && toolStatus && (
+          {!loadError && showSettings && config && toolStatus && (
+            <SettingsView
+              config={config}
+              toolStatus={toolStatus}
+              workspaceHealth={workspaceHealth}
+              onConfigChange={setConfig}
+              onToolStatusChange={setToolStatus}
+              onWorkspaceHealthChange={setWorkspaceHealth}
+              onClose={(allReady) => {
+                // Covers "Back" from settings: if the user signed out of
+                // something in here and didn't sign back in, this routes to
+                // full onboarding rather than trusting a stale "done" state.
+                setShowSettings(false);
+                setStage(allReady ? "dashboard" : "setup");
+              }}
+            />
+          )}
+
+          {!loadError && !showSettings && stage === "setup" && config && toolStatus && (
             <SetupDashboard
               toolStatus={toolStatus}
               config={config}
@@ -108,21 +142,21 @@ function App() {
               onConfigChange={setConfig}
               onToolStatusChange={setToolStatus}
               onWorkspaceHealthChange={setWorkspaceHealth}
-              onComplete={(allReady) => {
-                // Covers both first-time onboarding finishing (always
-                // `allReady`) and "Back to tasks" from settings - if the user
-                // signed out of something there and didn't sign back in,
-                // this correctly routes to full onboarding instead of the
-                // task dashboard rather than trusting a stale "done" state.
-                setShowSettings(false);
-                setStage(allReady ? "dashboard" : "setup");
-              }}
-              autoAdvance={!showSettings}
+              onComplete={(allReady) => setStage(allReady ? "dashboard" : "setup")}
+              autoAdvance
             />
           )}
 
-          {!loadError && !showAccountScreen && stage === "dashboard" && config && (
-            <Dashboard config={config} onSelectTask={openTask} />
+          {!loadError && !showAccountScreen && stage === "dashboard" && config && section === "tasks" && (
+            <Dashboard onSelectTask={openTask} />
+          )}
+
+          {!loadError && !showAccountScreen && stage === "dashboard" && config && section === "missions" && (
+            <MissionsHome
+              workspaceDir={config.workspaceDir}
+              claudeOauthToken={config.claudeOauthToken}
+              defaultModel={config.defaultMissionModel}
+            />
           )}
         </div>
       </AppShell>

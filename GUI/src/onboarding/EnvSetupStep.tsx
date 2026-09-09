@@ -12,7 +12,7 @@ const STEP_ORDER: { id: string; label: string }[] = [
   { id: "uv", label: "uv" },
   { id: "claude", label: "Claude Code" },
   { id: "clone", label: "Fork & clone Physlib" },
-  { id: "cache", label: "Fetch the Mathlib cache" },
+  { id: "cache", label: "Fetch the Physlib and Mathlib caches" },
   { id: "build", label: "Build Physlib" },
   { id: "mcp", label: "Connect Lean tools" },
 ];

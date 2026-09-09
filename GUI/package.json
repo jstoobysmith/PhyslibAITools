@@ -15,12 +15,17 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2",
+    "@xyflow/react": "^12.11.6",
+    "dagre": "^0.8.5",
+    "katex": "^0.18.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@types/dagre": "^0.7.54",
+    "@types/katex": "^0.16.8",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",

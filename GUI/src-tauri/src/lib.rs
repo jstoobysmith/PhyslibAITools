@@ -60,6 +60,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::auth_claude::ClaudeLoginState::default())
+        .manage(commands::mission_agent::MissionAgentState::default())
+        .manage(commands::workspace::SyncState::default())
         .invoke_handler(tauri::generate_handler![
             current_platform,
             detect_tools,
@@ -82,6 +84,22 @@ pub fn run() {
             commands::tasks::fetch_tasks,
             commands::run_task::start_task_run,
             commands::run_task::confirm_and_open_pr,
+            commands::missions::list_missions,
+            commands::missions::load_mission,
+            commands::missions::save_mission,
+            commands::missions::delete_mission,
+            commands::missions::import_source_files,
+            commands::missions::remove_source_file,
+            commands::missions::export_mission,
+            commands::missions::read_mission_file,
+            commands::lean::materialize_lean,
+            commands::lean::verify_lean,
+            commands::lean::workspace_lean_env,
+            commands::mission_agent::generate_graph,
+            commands::mission_agent::run_prove_agent,
+            commands::mission_agent::run_extend_agent,
+            commands::mission_agent::cancel_mission_agent,
+            commands::mission_agent::list_mission_runs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

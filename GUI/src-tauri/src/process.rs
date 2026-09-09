@@ -170,13 +170,22 @@ pub fn spawn_claude_streaming(
     prompt: &str,
     cwd: &Path,
     claude_oauth_token: Option<&str>,
+    model: Option<&str>,
 ) -> std::io::Result<(Child, tokio::task::JoinHandle<()>)> {
     let event = event.into();
-    let mut cmd = base_command(
-        "claude",
-        &["-p", prompt, "--permission-mode", "bypassPermissions", "--output-format", "stream-json", "--verbose"],
-        Some(cwd),
-    );
+    let mut args: Vec<&str> =
+        vec!["-p", prompt, "--permission-mode", "bypassPermissions", "--output-format", "stream-json", "--verbose"];
+    // Omitted entirely when unset, so the CLI keeps whatever model the user
+    // has configured for themselves - that, not a hardcoded default, is the
+    // right "no preference" behavior. Accepts an alias (`opus`) or a full id
+    // (`claude-opus-5`); which ids actually work depends on the signed-in
+    // account's plan, so an unavailable one surfaces as a run-time error from
+    // `claude` rather than something we can validate up front.
+    if let Some(model) = model {
+        args.push("--model");
+        args.push(model);
+    }
+    let mut cmd = base_command("claude", &args, Some(cwd));
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some(token) = claude_oauth_token {
         cmd.env("CLAUDE_CODE_OAUTH_TOKEN", token);

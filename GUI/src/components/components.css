@@ -279,3 +279,496 @@
   color: var(--muted);
   font-size: 0.875rem;
 }
+
+/* Top-level section switcher in the app header (Tasks / Missions). */
+.shell-tabs {
+  display: flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+}
+
+.shell-tabs__tab {
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius) - 0.15rem);
+  padding: 0.3rem 0.9rem;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.shell-tabs__tab:hover {
+  color: var(--foreground);
+}
+
+.shell-tabs__tab--on {
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: var(--shadow-surface);
+}
+
+/* --- workspace status bar (app shell, both sections) --- */
+
+.wsbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: 0.4rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.8125rem;
+}
+
+.wsbar--danger {
+  background: var(--danger-bg);
+  border-bottom-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+
+.wsbar--warning {
+  background: var(--warning-bg);
+  border-bottom-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+}
+
+.wsbar__toggle {
+  font: inherit;
+  font-size: 0.8125rem;
+  background: none;
+  border: none;
+  color: var(--foreground);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: 0;
+  text-align: left;
+}
+
+.wsbar__chevron {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.wsbar__name {
+  font-weight: 600;
+}
+
+.wsbar__detail {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+}
+
+.wsbar__spacer {
+  flex: 1;
+}
+
+/* The expanded detail spans the full width beneath the one-line summary. */
+.wsbar__panel {
+  flex-basis: 100%;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.wsbar__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem var(--space-4);
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.wsbar__facts dt {
+  color: var(--muted);
+}
+
+.wsbar__facts dd {
+  margin: 0;
+}
+
+.wsbar__deps {
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+.wsbar__deps th {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 0.75rem;
+  padding: 0 var(--space-4) 0.3rem 0;
+}
+
+.wsbar__deps td {
+  padding: 0.2rem var(--space-4) 0.2rem 0;
+}
+
+.wsbar__muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  max-width: 80ch;
+}
+
+.wsbar__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.75rem;
+}
+
+/* --- settings screen (behind the profile icon) --- */
+
+.settings__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.settings__body {
+  display: flex;
+  gap: var(--space-6);
+  align-items: flex-start;
+}
+
+.settings__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 15rem;
+  flex-shrink: 0;
+  position: sticky;
+  top: 5rem;
+}
+
+.settings__navitem {
+  font: inherit;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  text-align: left;
+  padding: var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.settings__navitem:hover {
+  background: var(--accent-wash);
+}
+
+.settings__navitem--on {
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: var(--shadow-surface);
+}
+
+.settings__navicon {
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+.settings__navitem strong {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.settings__navhint {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+.settings__pane {
+  flex: 1;
+  min-width: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 46rem;
+}
+
+.pane h2 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.pane__lede,
+.pane__muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.pane__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.pane__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pane__label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.pane__masked,
+.pane__path {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem var(--space-2);
+  word-break: break-all;
+}
+
+.pane__number {
+  max-width: 8rem;
+}
+
+.pane__actions,
+.pane__choices {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pane__ok {
+  color: var(--success);
+  font-size: 0.8125rem;
+}
+
+.pane__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 56rem) {
+  .settings__body {
+    flex-direction: column;
+  }
+
+  .settings__nav {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    position: static;
+  }
+}
+
+/* --- sync progress dialog --- */
+
+.syncdlg__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: color-mix(in srgb, #000 55%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+}
+
+.syncdlg {
+  width: min(46rem, 100%);
+  max-height: 86vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  cursor: default;
+}
+
+.syncdlg__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.syncdlg__head h2 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.syncdlg__head > :first-child {
+  flex: 1;
+}
+
+.syncdlg__sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+/* Three dots showing which step of the sync is live. */
+.syncdlg__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  font-size: 0.8125rem;
+}
+
+.syncdlg__step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+}
+
+.syncdlg__step--now {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.syncdlg__step--done {
+  color: var(--success);
+}
+
+.syncdlg__step--failed {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.syncdlg__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.syncdlg__step--todo .syncdlg__dot {
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.syncdlg__notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.syncdlg__notes li {
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--border);
+  background: var(--background);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--muted);
+}
+
+/* Qualified with `li` so it outranks `.syncdlg__notes li` above - the whole
+   point of a warning note is that it does not look like the others. */
+.syncdlg__notes li.syncdlg__note--warn {
+  border-left-color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--foreground);
+}
+
+.syncdlg__error {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 0.8125rem;
+}
+
+.syncdlg__output {
+  min-height: 6rem;
+}
+
+.syncdlg__muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.syncdlg__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.syncdlg__foot .syncdlg__muted {
+  flex: 1;
+}
+
+/* --- workspace picker (settings) --- */
+
+.wspick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+}
+
+.wspick__facts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+}
+
+.wspick__facts li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}

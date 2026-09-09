@@ -1,23 +1,14 @@
 import { useEffect, useState } from "react";
-import { Button } from "../components/Button";
 import { Spinner } from "../components/Spinner";
-import { Badge } from "../components/Badge";
 import { TaskCard } from "./TaskCard";
-import { ActivityFeed } from "./ActivityFeed";
 import { parseTask } from "./parseTask";
 import { fetchTasks } from "../lib/tauri";
-import { useWorkspaceSync } from "../lib/useWorkspaceSync";
 import type { ParsedTask } from "../lib/types";
 
-export function TaskList({
-  onSelect,
-  workspaceDir,
-  claudeOauthToken,
-}: {
-  onSelect: (task: ParsedTask) => void;
-  workspaceDir: string | null;
-  claudeOauthToken: string | null;
-}) {
+/** The task list. The Physlib/Mathlib status that used to sit in this header
+ * now lives in the app shell (`WorkspaceStatus`), so it shows on the Missions
+ * side too rather than only here - and is polled once instead of per screen. */
+export function TaskList({ onSelect }: { onSelect: (task: ParsedTask) => void }) {
   const [tasks, setTasks] = useState<ParsedTask[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,9 +39,6 @@ export function TaskList({
             before anything is opened as a pull request.
           </p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", justifyContent: "flex-end", flexShrink: 0 }}>
-          {workspaceDir && <WorkspaceSyncStatus workspaceDir={workspaceDir} claudeOauthToken={claudeOauthToken} />}
-        </div>
       </div>
 
       {loading && !tasks && (
@@ -70,48 +58,6 @@ export function TaskList({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-/** Whether the local Physlib checkout is behind upstream, with a one-click
- * re-sync (fetch the Mathlib cache + rebuild) - a speed optimization, not a
- * gate: every task run already fetches and branches off upstream fresh
- * regardless. Mirrors the same `useWorkspaceSync` hook and underlying
- * `sync_workspace` command the onboarding dashboard's own sync nudge uses
- * (see SetupDashboard.tsx), including the auto-fix Claude spawns if a step
- * fails, shown here as an activity feed while that's running. */
-function WorkspaceSyncStatus({ workspaceDir, claudeOauthToken }: { workspaceDir: string; claudeOauthToken: string | null }) {
-  const { health, phase, fixItems, error, sync } = useWorkspaceSync(workspaceDir, claudeOauthToken);
-
-  if (!health || !health.exists) return null;
-
-  const syncing = phase !== "idle";
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.3rem" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        {syncing ? (
-          <Badge tone="neutral">
-            {phase === "cache" ? "Fetching Mathlib cache…" : phase === "build" ? "Building Physlib…" : "Build failed - Claude is diagnosing…"}
-          </Badge>
-        ) : (
-          <Badge tone={health.behindUpstream === 0 ? "success" : "warning"}>
-            {health.behindUpstream === 0
-              ? "Physlib up to date"
-              : `${health.behindUpstream} commit${health.behindUpstream === 1 ? "" : "s"} behind`}
-          </Badge>
-        )}
-        <Button variant="secondary" size="sm" onClick={sync} busy={syncing}>
-          Sync
-        </Button>
-      </div>
-      {phase === "fixing" && (
-        <div style={{ width: "22rem", maxWidth: "80vw" }}>
-          <ActivityFeed items={fixItems} />
-        </div>
-      )}
-      {error && <span style={{ color: "var(--danger)", fontSize: "0.75rem" }}>{error}</span>}
     </div>
   );
 }

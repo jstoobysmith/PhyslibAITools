@@ -134,7 +134,7 @@ fn spawn_claude_run(
 ) {
     tokio::spawn(async move {
         let (mut child, stdout_task) =
-            match process::spawn_claude_streaming(app.clone(), "task-run", &prompt, &dir, claude_oauth_token.as_deref()) {
+            match process::spawn_claude_streaming(app.clone(), "task-run", &prompt, &dir, claude_oauth_token.as_deref(), None) {
                 Ok(v) => v,
                 Err(e) => {
                     let _ = app.emit(
