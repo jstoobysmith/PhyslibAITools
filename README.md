@@ -5,7 +5,17 @@
 Prefer a point-and-click experience? [`GUI/`](GUI/) contains a desktop app
 that walks you through the same flow — sign in to Claude Code and GitHub, set
 up a Lean/Mathlib workspace, then pick a task and watch Claude carry it out,
-ending in a real pull request. Installers for Windows and macOS are on the
+ending in a real pull request.
+
+It also contains a second, independent interface: a **mission workbench** for
+formalization projects, modelled on [Prove2Me](https://prove2.me). Describe a
+problem in natural language, attach papers and links, and an agent builds its
+decomposition graph - natural-language statements paired with formal Lean,
+rooted at a goal theorem and grounded in Mathlib and Physlib as its origins.
+Every statement is typechecked by Lean on your own machine; nothing is
+uploaded anywhere. See [`GUI/README.md`](GUI/README.md#missions).
+
+Installers for Windows and macOS are on the
 [releases page](https://github.com/jstoobysmith/PhyslibAITools/releases); see
 [`GUI/README.md`](GUI/README.md) for details.
 

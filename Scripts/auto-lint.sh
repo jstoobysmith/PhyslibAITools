@@ -235,7 +235,7 @@ log "Git commit identity: $(git config user.name) <$(git config user.email)>"
 # --- 4. Build (slow the first time) ----------------------------------------
  
 log "Fetching the Mathlib cache..."
-lake exe cache get
+lake exe get_cache
 log "Mathlib cache fetched."
 log "Building Physlib (the first build can take 10+ minutes)..."
 lake build

@@ -25,6 +25,7 @@ export function SetupDashboard({
   onWorkspaceHealthChange,
   onComplete,
   autoAdvance,
+  embedded = false,
 }: {
   toolStatus: ToolStatus;
   config: AppConfig;
@@ -38,6 +39,9 @@ export function SetupDashboard({
    * the user signed out of something and didn't sign back in, so the
    * caller can route to full onboarding instead of the task dashboard. */
   onComplete: (allReady: boolean) => void;
+  /** Rendered inside the settings screen, which supplies its own page header
+   * and Back button - so this drops both rather than stacking two. */
+  embedded?: boolean;
   /** True for first-time onboarding (auto-advances to the task dashboard the
    * moment all three sections are done); false when reopened from the
    * settings gear icon, where everything already being done is the normal
@@ -114,11 +118,15 @@ export function SetupDashboard({
   const envStatus: SectionStatus = envDone ? "done" : claudeDone && githubDone ? "active" : "pending";
 
   return (
-    <div className="page">
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem" }}>
+    <div className={embedded ? "" : "page"}>
+      {embedded ? (
+        <p className="page-subtitle" style={{ marginBottom: "1.5rem" }}>
+          Checked fresh every time the app opens, so a logout or an out-of-date workspace never goes unnoticed.
+        </p>
+      ) : (
         <div>
           <p className="eyebrow" style={{ marginBottom: "0.6rem" }}>
-            {autoAdvance ? "Get started" : "Settings"}
+            Get started
           </p>
           <h1 className="page-title" style={{ marginBottom: "0.5rem" }}>
             Connect your accounts
@@ -127,12 +135,7 @@ export function SetupDashboard({
             Checked fresh every time the app opens, so a logout or an out-of-date workspace never goes unnoticed.
           </p>
         </div>
-        {!autoAdvance && (
-          <Button variant="ghost" size="sm" onClick={() => onComplete(allReady)}>
-            ← Back to tasks
-          </Button>
-        )}
-      </div>
+      )}
 
       <div className="timeline">
         <SetupSection icon={<SparkIcon />} title="Claude Code" description="Runs the task for you." status={claudeStatus}>

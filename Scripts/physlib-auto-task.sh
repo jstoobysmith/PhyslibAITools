@@ -959,8 +959,8 @@ Delete the checkout and re-run this script for a clean clone + build:
   rm -rf \"$CHECKOUT_DIR\""
 }
 
-spin "Fetching the Mathlib cache" lake exe cache get \
-  || build_die "Failed to fetch the Mathlib cache (lake exe cache get)."
+spin "Fetching the Physlib and Mathlib caches" lake exe get_cache \
+  || warn "Couldn't fetch the caches; the build will still work, but will take a lot longer."
 
 # Stream the build itself: lake prints per-module progress, which is the most
 # reassuring signal during the long first build, and report how long it took.

@@ -2,9 +2,17 @@ import { useEffect, useState } from "react";
 import type { LogLine } from "../components/LogPane";
 import { describeEvent, type FeedItem } from "../tasks/describeEvent";
 import { checkWorkspaceHealth, onEvent, syncWorkspace } from "./tauri";
-import type { WorkspaceHealth } from "./types";
+import type { SyncPhaseEvent, WorkspaceHealth } from "./types";
 
-export type WorkspaceSyncPhase = "idle" | "cache" | "build" | "fixing";
+export type WorkspaceSyncPhase = "idle" | "git" | "cache" | "build" | "fixing";
+
+/** A line of explanation from the backend about what's happening and why -
+ *  including the ones that explain a slow build before it happens. */
+export interface SyncNote {
+  phase: WorkspaceSyncPhase | "done";
+  text: string;
+  warning: boolean;
+}
 
 /** Shared logic behind every "is Physlib up to date, and let me sync it"
  * control in the app (the setup dashboard's nudge, the task list's status
@@ -19,6 +27,8 @@ export function useWorkspaceSync(workspaceDir: string | null, claudeOauthToken: 
   const [lines, setLines] = useState<LogLine[]>([]);
   const [fixItems, setFixItems] = useState<FeedItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notes, setNotes] = useState<SyncNote[]>([]);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
 
   const checkHealth = () => {
     if (!workspaceDir) return;
@@ -32,6 +42,10 @@ export function useWorkspaceSync(workspaceDir: string | null, claudeOauthToken: 
   useEffect(() => {
     const onLine = (p: { stream: "stdout" | "stderr"; text: string }) => setLines((l) => [...l, p]);
     const subs = [
+      onEvent<SyncPhaseEvent>("sync:phase", (p) => {
+        if (p.phase !== "done") setPhase(p.phase as WorkspaceSyncPhase);
+        if (p.detail) setNotes((n) => [...n, { phase: p.phase, text: p.detail!, warning: p.warning }]);
+      }),
       onEvent<{ stream: "stdout" | "stderr"; text: string }>("sync:cache:line", (p) => {
         setPhase("cache");
         onLine(p);
@@ -67,7 +81,9 @@ export function useWorkspaceSync(workspaceDir: string | null, claudeOauthToken: 
     setError(null);
     setLines([]);
     setFixItems([]);
-    setPhase("cache");
+    setNotes([]);
+    setStartedAt(Date.now());
+    setPhase("git");
     try {
       await syncWorkspace(workspaceDir, claudeOauthToken);
       checkHealth();
@@ -78,5 +94,5 @@ export function useWorkspaceSync(workspaceDir: string | null, claudeOauthToken: 
     }
   };
 
-  return { health, phase, lines, fixItems, error, sync };
+  return { health, phase, lines, fixItems, notes, error, startedAt, sync };
 }

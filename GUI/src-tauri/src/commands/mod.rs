@@ -1,5 +1,8 @@
 pub mod auth_claude;
 pub mod auth_github;
+pub mod lean;
+pub mod mission_agent;
+pub mod missions;
 pub mod run_task;
 pub mod setup_env;
 pub mod tasks;

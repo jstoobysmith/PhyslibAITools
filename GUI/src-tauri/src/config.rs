@@ -43,6 +43,11 @@ pub struct AppConfig {
     /// storage is a reasonable follow-up, not required for v1.
     #[serde(default)]
     pub claude_oauth_token: Option<String>,
+    /// `--model` value new missions start with (see the mission workbench).
+    /// `None` means "whatever Claude Code is configured with"; the field is
+    /// absent in configs written before missions existed, hence `default`.
+    #[serde(default)]
+    pub default_mission_model: Option<String>,
 }
 
 fn default_max_open_auto_prs() -> u32 {
@@ -57,6 +62,7 @@ impl Default for AppConfig {
             max_open_auto_prs: default_max_open_auto_prs(),
             last_task: None,
             claude_oauth_token: None,
+            default_mission_model: Some("claude-opus-5".into()),
         }
     }
 }
@@ -103,12 +109,24 @@ fn is_writable(dir: &Path) -> bool {
 /// manages stays in one obvious place), falling back to the OS's per-user
 /// app-data directory if that location isn't writable (e.g. a per-machine
 /// install under `Program Files` without elevation).
+///
+/// **Except on macOS**, where "next to the executable" means *inside*
+/// `PhyslibAITools.app/Contents/MacOS`. A macOS app update replaces the whole
+/// bundle, which would silently take the workspace with it - and this is not a
+/// small thing to lose: a real one measured 11 GB, and re-creating it means a
+/// fresh clone plus a full Mathlib fetch and build. The per-user app-data
+/// directory survives app updates, so that is used unconditionally there.
+///
+/// Only affects setups that have not chosen a location yet; an existing
+/// `workspace_dir` in the config is always honoured.
 #[tauri::command]
 pub fn installed_workspace_dir(app: AppHandle) -> Result<String, String> {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            if is_writable(dir) {
-                return Ok(dir.join("Physlib").to_string_lossy().into_owned());
+    if !cfg!(target_os = "macos") {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                if is_writable(dir) {
+                    return Ok(dir.join("Physlib").to_string_lossy().into_owned());
+                }
             }
         }
     }

@@ -399,15 +399,31 @@ pub async fn run_setup(app: AppHandle, workspace_dir: String) -> Result<(), Stri
     workspace::ensure_cloned(app.clone(), &dir).await?;
     emit_step(&app, "clone", "Fork and clone Physlib", "done", None);
 
-    emit_step(&app, "cache", "Fetch the Mathlib cache", "running", None);
-    let cache_status = process::run_streamed_to_completion(app.clone(), "setup:cache", "lake", &["exe", "cache", "get"], Some(&dir))
+    // `lake exe get_cache` is Physlib's own script (scripts/get_cache.lean).
+    // It fetches Mathlib's prebuilt oleans *and* Physlib's own artifacts from
+    // the project's cache bucket, where `lake exe cache get` fetches only the
+    // former - leaving Physlib itself to compile from source, which is the
+    // expensive half. This is the command Physlib's install docs give.
+    //
+    // Non-fatal by design, again following those docs: "Do not worry if it
+    // fails, you can still run `lake build`, it will just be much slower." A
+    // failed download is a slow build, not a broken setup, so it is reported
+    // as skipped and the build carries on.
+    emit_step(&app, "cache", "Fetch the Physlib and Mathlib caches", "running", None);
+    let cache_status = process::run_streamed_to_completion(app.clone(), "setup:cache", "lake", &["exe", "get_cache"], Some(&dir))
         .await
         .map_err(|e| e.to_string())?;
-    if !cache_status.success() {
-        emit_step(&app, "cache", "Fetch the Mathlib cache", "failed", None);
-        return Err("Failed to fetch the Mathlib cache (`lake exe cache get`).".into());
+    if cache_status.success() {
+        emit_step(&app, "cache", "Fetch the Physlib and Mathlib caches", "done", None);
+    } else {
+        emit_step(
+            &app,
+            "cache",
+            "Fetch the Physlib and Mathlib caches",
+            "skipped",
+            Some("Couldn't download the caches. The build below will still work, but will take a lot longer.".into()),
+        );
     }
-    emit_step(&app, "cache", "Fetch the Mathlib cache", "done", None);
 
     emit_step(&app, "build", "Build Physlib", "running", None);
     let build_status = process::run_streamed_to_completion(app.clone(), "setup:build", "lake", &["build"], Some(&dir))

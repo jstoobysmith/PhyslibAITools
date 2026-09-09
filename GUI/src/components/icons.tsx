@@ -66,3 +66,36 @@ export function GearIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** A person - the profile menu, where the API token, accounts and preferences
+ * are changed. Replaces the gear in the header: what sits behind it is mostly
+ * "who am I signed in as", not machine settings. */
+export function ProfileIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="8.5" r="3.75" />
+      <path d="M4.5 20.2a7.5 7.5 0 0 1 15 0" />
+    </svg>
+  );
+}
+
+/** A key - the API token section. */
+export function KeyIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="8" cy="12" r="3.5" />
+      <path d="M11.5 12H21M18 12v3.2M15 12v2.2" />
+    </svg>
+  );
+}
+
+/** Sliders - the preferences section. */
+export function SlidersIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base(props)}>
+      <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+      <circle cx="15" cy="7" r="2" />
+      <circle cx="9" cy="17" r="2" />
+    </svg>
+  );
+}
